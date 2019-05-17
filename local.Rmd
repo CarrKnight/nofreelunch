@@ -1,0 +1,227 @@
+---
+title: "Local"
+author: "Ernesto Carrella"
+date: "February 16, 2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Local Identification
+
+```{r setup, include=FALSE}
+set.seed(0)
+knitr::opts_chunk$set(echo = FALSE, warning= FALSE, message=FALSE,
+                      cache=TRUE,cache.extra = knitr::rand_seed,
+                      dpi = 300, fig.width = 13.3, fig.height = 10)
+library(abctools)
+source('./setup.R')
+library(tidyverse)
+```
+
+```{r dataprep}
+#library(EasyABC)
+RUNS_TO_MAKE<-SMALL_DATA_SET_SIZE
+
+
+
+
+# run gk model and returns deciles as summary statistics
+run_local_model<-function(theta1,theta2){
+  
+  if(theta1>2 & theta2>2)
+  {
+    sample<-rnorm(n=100,mean=theta1,sd=theta2)
+    
+  }
+  else{
+        sample<-rnorm(n=100,mean=0,sd=3)
+  }
+  
+  return(data.frame(
+    mean=mean(sample),
+    sd=sd(sample)
+    
+  ))
+}
+
+
+
+#produce theta2
+total_data<-
+  data.frame(
+    theta1 = runif(RUNS_TO_MAKE,min = 0.1,max=5),
+    theta2 = runif(RUNS_TO_MAKE,min = 0.1,max=5)
+    #theta2 = sample(c(1,1000,resample=TRUE,size=1000))
+  ) 
+
+total_data<-pmap_df(total_data,run_local_model) %>% cbind(total_data)
+
+param_names<-c("theta1","theta2")
+
+x_names<-setdiff(colnames(total_data),param_names)
+
+```
+
+# ABC
+
+## Rejection
+
+
+```{r rejection}
+rejection_cross<-
+  cross_validate_abc(total_data,ngroup=5,method="rejection",parameter_colnames = param_names)
+print_table(rejection_cross)
+
+```
+
+## Rejection - semiauto
+
+
+```{r rejection-sabc}
+rejection_cross_sabc<-
+  cross_validate_abc(total_data,ngroup=5,method="rejection",parameter_colnames = param_names,
+                     semiauto = TRUE)
+print_table(rejection_cross_sabc)
+
+```
+
+## Rejection - 1D
+
+
+```{r rejection-sabc1d}
+rejection_cross_sabc1d<-
+  cross_validate_abc(total_data,ngroup=5,method="rejection",parameter_colnames = param_names,
+                     semiauto = TRUE,
+                     satr=list(function(x){outer(x,Y=1,"^")}))
+print_table(rejection_cross_sabc1d)
+
+```
+
+## Loclin
+
+
+```{r loclin}
+loclin_cross<-
+  cross_validate_abc(total_data,ngroup=5,method="loclinear",
+                     hcorr=TRUE,parameter_colnames = param_names,
+                     semiauto = FALSE)
+print_table(loclin_cross)
+
+```
+
+## Neural-Network
+
+```{r neuralnet, eval=TRUE, message= FALSE, results="hide"}
+neuralnet<-
+  cross_validate_abc(total_data,ngroup=5,method="neuralnet",
+                     hcorr=TRUE,parameter_colnames = param_names)
+
+```
+```{r}
+print_table(neuralnet)
+
+```
+
+# Linear regression
+
+
+## Degree 1
+
+```{r lm}
+lm_cross<-
+  cross_validate_lm(total_data,ngroup=5,
+                    parameter_colnames = param_names,x_names=x_names,
+                     degree=1)
+print_table(lm_cross)
+
+```
+
+# Random Forest
+
+
+
+```{r rf}
+rf_cross<-
+  cross_validate_rf(total_data,ngroup=5,
+                    parameter_colnames = param_names,x_names=x_names)
+print_table(rf_cross)
+
+```
+
+
+
+# Loess Fit
+
+
+
+```{r loess}
+loess_cross<- cross_validate_loess(total_data,ngroup=5,
+                    parameter_colnames = param_names,
+                    x_names=x_names,
+                    bam=TRUE)
+print_table(loess_cross)
+
+```
+# Random Forest (boot)
+
+
+
+```{r rfboot, results="hide"}
+rfboot_cross<-
+  cross_validate_rfboot(total_data,ngroup=5,
+                    parameter_colnames = param_names,x_names=x_names)
+
+```
+
+```{r rfboottable}
+print_table(rfboot_cross)
+```
+
+
+# Average
+
+
+
+```{r average}
+average_cross<- cross_validate_average(total_data,ngroup=5,
+                    parameter_colnames = param_names,
+                    x_names=x_names)
+print_table(average_cross)
+
+```
+
+```{r, writetocsv}
+FILENAME<-"local_small"
+
+crosses<-
+  list(
+    rejection = rejection_cross,
+    sabc_4d = rejection_cross_sabc,
+    sabc_1d = rejection_cross_sabc1d,
+    loclin = loclin_cross,
+    neuralnet = neuralnet,
+    lm = lm_cross,
+    rf = rf_cross,
+    rfboot = rfboot_cross,
+    loess = loess_cross,
+    average = average_cross
+  )
+
+write_csv(
+  map2_df(crosses,names(crosses),~ as_data_frame(t(.x$error)) %>% 
+            mutate(method=.y)) %>% gather(parameter,value,-method), 
+  paste("./errors/",FILENAME,".csv",sep="")
+)
+
+write_csv(
+  map2_df(crosses,names(crosses),~ as_data_frame(t(.x$contained)) %>% 
+            mutate(method=.y)) %>% gather(parameter,value,-method),   paste("./contained/",FILENAME,".csv",sep="")
+)
+
+write_csv(
+  map2_df(crosses,names(crosses),~ as_data_frame(t(.x$interval)) %>% 
+            mutate(method=.y)) %>% gather(parameter,value,-method), 
+  paste("./intervals/",FILENAME,".csv",sep="")
+)
+```

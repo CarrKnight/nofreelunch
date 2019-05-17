@@ -1,0 +1,249 @@
+---
+title: "Steel"
+author: "Ernesto Carrella"
+date: "February 16, 2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning= FALSE, message=FALSE,
+                      cache=TRUE,
+                      dpi = 300, fig.width = 13.3, fig.height = 10)
+library(abctools)
+source('./setup.R')
+library(tidyverse)
+```
+
+```{r dataprep}
+dr_sumstat1<-read_delim("./data/dr/DR-sumstat1.txt",delim=" ",
+                     col_names=FALSE)
+dr_sumstat2<-read_delim("./data/dr/DR-sumstat2.txt",delim=" ",
+                     col_names=FALSE)
+dr_sumstat<- bind_rows(dr_sumstat1,dr_sumstat2)
+
+colnames(dr_sumstat) <- paste("sumstat_",1:(dr_sumstat %>% ncol()),sep="")
+
+
+dr_parameters<-
+  read_delim("../DR-params.txt",delim=" ",
+             col_names=FALSE)
+colnames(dr_parameters) <- paste("param_",1:4,sep="")
+
+total_data<-
+  cbind(dr_parameters,dr_sumstat) %>%
+  # I waited a week for loclin to be done; it just took too long with 1M observations
+  sample_n(size=200000)
+
+#this is just too big to do a full cross-validation routine. Let's just pick a decent number of test cases and be done with it
+test_data<- 
+  withSeed({
+  total_data %>%
+    sample_n(SMALL_DATA_SET_SIZE) 
+  },
+  seed = SMALL_DATA_RANDOM_SEED
+  )
+training_data<-
+      anti_join(total_data,test_data)
+
+
+param_names<-colnames(dr_parameters)
+x_names<-colnames(dr_sumstat)
+```
+# ABC
+
+## Rejection
+
+
+```{r rejection}
+rejection_cross<-
+  abc_testing(
+    training_set = training_data,
+    testing_set = test_data,
+    parameter_colnames = param_names,
+    method="rejection"
+  )
+print_table(rejection_cross)
+
+```
+
+## Rejection - semiauto
+
+
+```{r rejection-sabc}
+rejection_cross_sabc<-
+    abc_testing(
+    training_set = training_data,
+    testing_set = test_data,
+    parameter_colnames = param_names,
+    method="rejection",
+    semiauto = TRUE
+  )
+print_table(rejection_cross_sabc)
+
+```
+
+## Rejection - 1D
+
+
+```{r rejection-sabc1d}
+rejection_cross_sabc1d<-
+    abc_testing(
+    training_set = training_data,
+    testing_set = test_data,
+    parameter_colnames = param_names,
+    method="rejection",
+    semiauto = TRUE,
+    satr=list(function(x){outer(x,Y=1,"^")}))
+
+print_table(rejection_cross_sabc1d)
+
+```
+
+## Loclin
+
+
+```{r loclin}
+loclin_cross<-
+  abc_testing(
+    training_set = training_data,
+    testing_set = test_data,
+    parameter_colnames = param_names,
+    method="loclinear",
+    hcorr=TRUE
+  )
+print_table(loclin_cross)
+
+```
+
+## Neural-Network
+
+```{r neuralnet, eval=TRUE, message= FALSE, results="hide"}
+neuralnet<-
+    abc_testing(
+    training_set = training_data,
+    testing_set = test_data,
+    parameter_colnames = param_names,
+    method="neuralnet",
+    hcorr=TRUE
+  )
+
+```
+```{r}
+print_table(neuralnet)
+
+```
+
+# Linear regression
+
+
+## Degree 1
+
+```{r lm}
+lm_cross<-
+  linear_regression_fit(
+    training_set = training_data,
+    testing_set = test_data,
+     parameter_colnames = param_names,
+    x_names=x_names,
+                     degree=1 
+  )
+print_table(lm_cross)
+
+```
+
+
+# Random Forest
+
+
+
+```{r rf}
+rf_cross<-
+  randomForest_fit(    training_set = training_data,
+    testing_set = test_data,
+                    parameter_colnames = param_names,x_names=x_names)
+print_table(rf_cross)
+
+```
+
+
+
+
+
+# Loess Fit
+
+
+```{r loess}
+loess_cross<-
+  loess_fit(training_set = training_data,
+    testing_set = test_data,
+                    parameter_colnames = param_names,x_names=x_names)
+
+print_table(loess_cross)
+
+```
+
+# Random Forest (boot)
+
+
+
+```{r rfboot, results="hide"}
+rfboot_cross<-
+ randomForest_caretboot_fit(    training_set = training_data,
+    testing_set = test_data,
+                    parameter_colnames = param_names,x_names=x_names)
+
+```
+
+```{r rfboottable}
+print_table(rfboot_cross)
+```
+
+
+# Average
+
+
+
+```{r average}
+average_cross<- average_fit( training_set = training_data,
+    testing_set = test_data,
+                    parameter_colnames = param_names,x_names=x_names)
+print_table(average_cross)
+
+```
+
+```{r, writetocsv, cache=FALSE}
+FILENAME<-"steel_quick"
+
+crosses<-
+  list(
+    rejection = rejection_cross,
+    sabc_4d = rejection_cross_sabc,
+    sabc_1d = rejection_cross_sabc1d,
+    loclin = loclin_cross,
+    neuralnet = neuralnet,
+    lm = lm_cross,
+    rf = rf_cross,
+    rfboot = rfboot_cross,
+    loess = loess_cross,
+    average = average_cross
+  )
+
+write_csv(
+  map2_df(crosses,names(crosses),~ as_data_frame(t(.x$error)) %>% 
+            mutate(method=.y)) %>% gather(parameter,value,-method), 
+  paste("./errors/",FILENAME,".csv",sep="")
+)
+
+write_csv(
+  map2_df(crosses,names(crosses),~ as_data_frame(t(.x$contained)) %>% 
+            mutate(method=.y)) %>% gather(parameter,value,-method),   paste("./contained/",FILENAME,".csv",sep="")
+)
+
+write_csv(
+  map2_df(crosses,names(crosses),~ as_data_frame(t(.x$interval)) %>% 
+            mutate(method=.y)) %>% gather(parameter,value,-method), 
+  paste("./intervals/",FILENAME,".csv",sep="")
+)
+```

@@ -1,0 +1,339 @@
+---
+title: "lotkevolterra"
+author: "Ernesto Carrella"
+date: "February 16, 2019"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+set.seed(0)
+knitr::opts_chunk$set(echo = FALSE, warning= FALSE, message=FALSE,
+                      cache=TRUE,cache.extra = knitr::rand_seed,
+                      dpi = 300, fig.width = 13.3, fig.height = 10)
+library(abctools)
+source('./setup.R')
+library(tidyverse)
+
+SD_LOTKA_VOLTERRA <- 0 # Toni uses 0 for training, actually
+
+```
+
+```{r dataprep}
+
+library(deSolve)
+### from here: https://github.com/Jeet1994/Prey-Predator-Model
+PrPred <- function(a,b,
+                   # these are the times when the observation took place in Toni's paper
+                   # eyeballed by https://github.com/p-robot/abc/blob/master/abc/toni09_lv_data.R
+                   observation_times = c(1,1.2, 2.4, 3.9, 5.7, 7.5, 9.6, 11.9, 14.5)
+){
+  Pars <- c(a, b)
+  # the paper doesn't really specify the starting point
+  # this is what it looks like from figure 1a
+  # this is always going to be step 0, so be sure to keep 0 in the time there
+  State <- c(x = 1, y = 0.5)
+  
+  
+  LotVmod <- function (Time, State, Pars) {
+    with(as.list(c(State, Pars)), {
+      dx = x*a - y * x
+      dy = b * x * y - y
+      return(list(c(dx, dy)))
+    })
+  }
+  
+    Time <- observation_times
+
+  solution<-     
+    tryCatch({ode(func = LotVmod, 
+        y = State, parms = Pars, 
+        times = Time,
+        method="lsoda")},
+        error=function(e) NA,
+        warning=function(e) NA
+    )
+  return( as.data.frame(solution) )
+}
+
+# does the lotka volterra and adds noise to it
+# also returns it as a single line data.frame
+PrPredNoisy<-function(a,b,
+                      # these are the times when the observation took place in Toni's paper
+                      # eyeballed by https://github.com/p-robot/abc/blob/master/abc/toni09_lv_data.R
+                      observation_times = c(0,1.2, 2.4, 3.9, 5.7, 7.5, 9.6, 11.9, 14.5),
+                      sd=0.5,
+                      progress_bar = NULL){
+  
+ # print(paste(a,b))
+  noiseless<-PrPred(a,b,observation_times) #ignore the 0 step!
+  #failed to solve; let's stay with NA
+  if(!identical(noiseless$t,observation_times) | 
+     sum(is.na(noiseless$x)) > 0 | sum(is.na(noiseless$y)) > 0 |
+    # also, unfortunately all solvers have trouble sometimes with some time series that go deeply negative
+    # rather than adding constraints, let's just remove them 
+     sum(noiseless$x < -1-10*sd) > 0 | sum(noiseless$y < -1-10*sd) > 0)
+  {
+     noiseless<-data.frame(t=observation_times, 
+                           x=NA,
+                           y=NA)
+  }
+  noisy <- c(noiseless$x,noiseless$y) 
+  noisy <- noisy + rnorm(n=length(noisy),mean=0,sd=sd)
+  names(noisy) <- c( 
+    paste("x",noiseless$t,sep="_"),
+    paste("y",noiseless$t,sep="_"))
+  
+    if(!is.null(progress_bar))
+    {
+      progress_bar$tick()
+      progress_bar$print()
+     }                      
+  return(data.frame(as.list(noisy)))
+  
+  
+  
+}
+
+## first do the usual cross-validation thing
+RUNS_TO_MAKE<-100000 # this is about the number of runs in Toni too
+
+### -10 to 0 is weird and the regression collapses
+all_runs<-
+  withSeed({
+  data.frame(
+    a = runif(RUNS_TO_MAKE,0,10),
+    b = runif(RUNS_TO_MAKE,0,10)
+  )},seed=SMALL_DATA_RANDOM_SEED
+  )
+all_runs<- pmap_df(all_runs,PrPredNoisy,progress_bar=progress_estimated(RUNS_TO_MAKE),
+                   sd=SD_LOTKA_VOLTERRA # this is the assumption in Toni too: train on non-noisy
+                   ) %>% cbind(all_runs)
+rownames(all_runs) <- NULL
+
+#write_csv(all_runs,"./lotka_volterra_all_runs.csv")
+#all_runs<-read_csv("./lotka_volterra_all_runs.csv")
+#all_runs<-read_csv("./lotka_volterra_all_runs_nonoise.csv")
+#all_runs<-read_csv("./lotka_volterra_all_runs_nonoise_positive.csv")
+total_data<-all_runs %>% na.omit()
+total_data<- total_data[!is.infinite(rowSums(total_data)),]
+total_data<-total_data[complete.cases(total_data), ]
+rownames(total_data) <- NULL
+# I need to remove x0 and y0 because they are linearly correlated to intercept and loclin/ridge fail to drop them automatically
+total_data<-total_data %>% select(-x_0,-y_0)
+
+
+#this is just too big to do a full cross-validation routine. Let's just pick a decent number of test cases and be done with it
+test_data<- 
+  withSeed({
+  total_data %>%
+    sample_n(SMALL_DATA_SET_SIZE) 
+  },
+  seed = SMALL_DATA_RANDOM_SEED
+  )
+training_data<-
+      anti_join(total_data,test_data)
+
+
+param_names<-c("a","b")
+x_names<- setdiff(colnames(total_data),param_names) 
+
+```
+
+# ABC
+
+## Rejection
+
+
+```{r rejection}
+rejection_cross<-
+  abc_testing(
+    training_set = training_data,
+    testing_set = test_data,
+    parameter_colnames = param_names,
+    method="rejection"
+  )
+print_table(rejection_cross)
+
+```
+
+## Rejection - semiauto
+
+
+```{r rejection-sabc}
+rejection_cross_sabc<-
+    abc_testing(
+    training_set = training_data,
+    testing_set = test_data,
+    parameter_colnames = param_names,
+    method="rejection",
+    semiauto = TRUE
+  )
+print_table(rejection_cross_sabc)
+
+```
+
+## Rejection - 1D
+
+
+```{r rejection-sabc1d}
+rejection_cross_sabc1d<-
+    abc_testing(
+    training_set = training_data,
+    testing_set = test_data,
+    parameter_colnames = param_names,
+    method="rejection",
+    semiauto = TRUE,
+    satr=list(function(x){outer(x,Y=1,"^")}))
+
+print_table(rejection_cross_sabc1d)
+
+```
+
+## Loclin
+
+
+```{r loclin}
+loclin_cross<-
+  abc_testing(
+    training_set = training_data,
+    testing_set = test_data,
+    parameter_colnames = param_names,
+    method="loclinear",
+    hcorr=TRUE
+  )
+print_table(loclin_cross)
+
+```
+
+## Neural-Network
+
+```{r neuralnet, eval=TRUE, message= FALSE, results="hide"}
+neuralnet<-
+    abc_testing(
+    training_set = training_data,
+    testing_set = test_data,
+    parameter_colnames = param_names,
+    method="neuralnet",
+    hcorr=TRUE
+  )
+
+```
+```{r}
+print_table(neuralnet)
+
+```
+
+# Linear regression
+
+
+## Degree 1
+
+```{r lm}
+lm_cross<-
+  linear_regression_fit(
+    training_set = training_data,
+    testing_set = test_data,
+     parameter_colnames = param_names,
+    x_names=x_names,
+                     degree=1 
+  )
+print_table(lm_cross)
+
+```
+
+# Random Forest
+
+
+
+```{r rf}
+rf_cross<-
+  randomForest_fit(    training_set = training_data,
+    testing_set = test_data,
+                    parameter_colnames = param_names,x_names=x_names)
+print_table(rf_cross)
+
+
+```
+
+
+
+# Loess Fit
+
+
+
+```{r loess}
+loess_cross<-
+  loess_fit(training_set = training_data,
+    testing_set = test_data,
+                    parameter_colnames = param_names,x_names=x_names)
+
+print_table(loess_cross)
+
+```
+
+
+# Random Forest (boot)
+
+
+
+```{r rfboot, results="hide"}
+rfboot_cross<-
+ randomForest_caretboot_fit(    training_set = training_data,
+    testing_set = test_data,
+                    parameter_colnames = param_names,x_names=x_names)
+
+```
+
+```{r rfboottable}
+print_table(rfboot_cross)
+```
+
+
+# Average
+
+
+
+```{r average}
+average_cross<- average_fit( training_set = training_data,
+    testing_set = test_data,
+                    parameter_colnames = param_names,x_names=x_names)
+print_table(average_cross)
+
+```
+
+```{r, writetocsv, cache=FALSE}
+FILENAME<-"lk_nonoise_quick"
+
+crosses<-
+  list(
+    rejection = rejection_cross,
+    sabc_4d = rejection_cross_sabc,
+    sabc_1d = rejection_cross_sabc1d,
+    loclin = loclin_cross,
+    neuralnet = neuralnet,
+    lm = lm_cross,
+    rf = rf_cross,
+    rfboot = rfboot_cross,
+    loess = loess_cross,
+    average = average_cross
+  )
+
+write_csv(
+  map2_df(crosses,names(crosses),~ as_data_frame(t(.x$error)) %>% 
+            mutate(method=.y)) %>% gather(parameter,value,-method), 
+  paste("./errors/",FILENAME,".csv",sep="")
+)
+
+write_csv(
+  map2_df(crosses,names(crosses),~ as_data_frame(t(.x$contained)) %>% 
+            mutate(method=.y)) %>% gather(parameter,value,-method),   paste("./contained/",FILENAME,".csv",sep="")
+)
+
+write_csv(
+  map2_df(crosses,names(crosses),~ as_data_frame(t(.x$interval)) %>% 
+            mutate(method=.y)) %>% gather(parameter,value,-method), 
+  paste("./intervals/",FILENAME,".csv",sep="")
+)
+```

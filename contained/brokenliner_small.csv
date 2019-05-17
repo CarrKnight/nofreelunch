@@ -1,0 +1,10 @@
+method,parameter,value
+rejection,b,0.9816
+sabc_4d,b,0.9712
+loclin,b,0.8472000000000001
+neuralnet,b,0.23600000000000002
+lm,b,0.9456
+rf,b,0.9912
+loess,b,0.9432
+rfboot,b,0.9536
+average,b,1

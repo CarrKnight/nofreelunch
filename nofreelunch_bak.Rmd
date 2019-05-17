@@ -1,0 +1,382 @@
+---
+title: "No Free Lunch in the cafeteria of love"
+date: "`r Sys.Date()`"
+abstract: "This is an informative abstract that will just make you want to read the full paper and approve it with no revisions."
+author:
+- name: Ernesto Carrella^[Corresponding author:ernesto.carrella@ouce.ox.ac.uk]
+  affiliation: School of Geography and the Environment, University of Oxford, South Parks Road, Oxford, OX1 3QY, UK.
+- name: Richard M. Bailey
+  affiliation: School of Geography and the Environment, University of Oxford, South Parks Road, Oxford, OX1 3QY, UK.
+- name: Jens Koed Madsen
+  affiliation: School of Geography and the Environment, University of Oxford, South Parks Road, Oxford, OX1 3QY, UK.  
+- name: Nicolas Payette
+  affiliation: School of Geography and the Environment, University of Oxford, South Parks Road, Oxford, OX1 3QY, UK.    
+header-includes:
+ - \usepackage{algorithmic}
+ - \usepackage{algorithm}
+output: 
+  # bookdown::pdf_document2:
+  #   keep_tex: true
+#   bookdown::word_document2:
+# #    number_sections: true
+#     fig_caption: true
+  bookdown::html_document2:
+      toc: true
+      toc_depth: 3
+      theme: "readable"
+      highlight: haddock
+      number_sections: true
+      self_contained: true
+bibliography: ["library.bib"]
+biblio-style: "apalike"
+link-citations: true
+urlcolor: blue
+editor_options: 
+  chunk_output_type: console
+---  
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning= FALSE, message=FALSE,
+                      cache=TRUE,
+                      dpi = 300, fig.width = 13.3, fig.height = 10)
+library(tidyverse)
+library(here)
+
+
+path<-"/home/carrknight/code/oxfish/docs/indirect_inference/commondata/errors/"
+
+```
+
+# Introduction
+
+
+* Simulation models, including agent-based simulations are stochastic but their likelihood is unknown or untractable
+* Likelihood free methods can be used to retrieve parameters given summary statistics
+* Two major techniques do so while providing intervals around the parameters: ABC and supervised learning methods
+
+* The question for a practictioner is always which method is better
+    * In particular in the presence of under-identification (which is a fact of life in social sciences)
+    * Large amounts of summary statistics (which are common in agent-based models)
+* Here we take many examples from the ABC literature and test the quality of the prediction and confidence interval reported for the most famous methods
+
+* Four main results:
+    * It doesn't really matter: all differences are quantitative rather than qualitative
+    * No algorithm wins all the time, but some are consistently good
+    * Bootstrap prediction intervals are fairly accurate when it comes to valid parameter intervals; regression adjusted ABMs and quantile regression less so
+    * Plain, 1st degree linear regression is not a bad starting point
+
+## Brief Literature Review
+
+Simulations models are often complicated enough that their likelihood is unknown and intractable.
+We may still want to tune the simulation parameters to match data.
+The most general approach to this is Indirect Inference[[@Gourieroux1993; @Smith1993]: summarise simulation and real data into a set of auxiliary statistics, then tune the simulation's parameters to minimize the difference between its auxiliary statistics and the ones estimated from real data.
+While originally limited to M-estimators, @Zhao2010 proved the method's consistency for all choices of auxiliary statistics that can be estimated consistently and which correspond one-to-one to the simulation's parameters.
+
+<!-- * Indirect Inference and minimization -->
+<!--     * Mild consistency -->
+<!--     * No confidence intervals -->
+<!--     * All common issues with minimization -->
+<!--         * Search may get stuck -->
+<!--         * Choice of summary statistics and distance weights matters a lot, computationally -->
+
+ABC[@Beaumont2010] accomplishes the same task from a Bayesian perspective.
+All variants start by assigning some priors $\pi(\cdot) to the value of each simulation parameter $\theta_i$.
+As with Indirect Inference, ABC condenses simulation output $x(\theta)$ and real data $y$ into a set of summary statistics $S=S_1,\dots,S_n$
+In rejection-ABC, we repeatedly draw random set of parameters from their priors, feed them into the simulation model and reject them whenever $d\left[S(x(\theta)),S(y)\right] > \epsilon$ where $d(\cdot,\cdot)$ is usually the Euclidean distance and $\epsilon$ is an arbitrary threshold.
+
+The advantage of ABC is that it's simple and produces full posterior estimates of each parameter.
+
+
+
+
+* ABC method
+    * The good:
+        * Simple
+        * Produces full posteriors
+    * The bad:
+        * Hard to set tolerance
+        * Curse of dimensionality
+        * Hard to understand the value/effect of each summary statistic
+        
+* Realistic ABC: Reference Table
+    * Set acceptance rate + computational budget
+    * Regression-Adjustment:
+        * Loclin
+        * Neural Net
+    * Semi-automatic:
+        * Linear - Prangle
+        * Non-linear Deep Learning
+        
+* Natural Evolution: just run a regression on the reference table
+    * Deep learning
+    * Random Forests
+* The improvement:
+    * Easy to tune
+    * Understandable
+    * Scalable
+
+    
+    
+  * Two questions
+    * Do we need complicated supervised learning at all?
+        * Can a GAM model do it too? How about a linear regression?
+        * Just as scalable and easier to understand
+    * How to generate confidence intervals? 
+        * RF paper uses quantiles, but a more natural way to look at them is as prediction intervals instead
+        * Use bootstrap (and jacknife for RF)
+    
+# Methods
+
+* try different techniques on the same data set. Which one is better?
+
+* We care about two things:
+    * highest predictivity
+    * most accurate intervals (95%)
+    * also, smallest intervals to a point
+
+
+## Algorithms
+
+* 5 ABC methods:
+    * Rejection
+    * Loclin
+    * Neural Net
+    * SaABC of degree 1 and 4
+* All at tolerance 0.1, all implemented within the `abc` and `abctools` packages
+* All SaABC parameters are the default ones from the package
+
+* 4 Supervised learning methods:
+    * Linear Regression
+    * Gam (implemented in `mgcv` package)
+    * RF with `caret` 
+    * Quantile RF
+    
+* All can produce prediction intervals
+    * Linear regression uses bootstrap with pairs resampling.
+    * Gam resamples residuals and uses SE error, assuming normality (because it's slower than a linear regression, but its SE estimation is probably better)
+    * RF does the same, except it uses infinitesimal Jacknife SE estimates (from that paper and `ranger` package)
+    * Quantile RF uses quantiles, like in the ABC-RF paper
+
+## Experiments
+
+We use each algorithm to parametrize 20 separate experiments, repeating some with different amount of data or summary statistics.
+Table \@ref(tab:experimentsmasterlist) lists them all.
+We can roughly categorize the experiments into three groups: simple problems, ill posed problems and large problems.
+In all cases, all the algorithms were fed the same training data and asked to parametrize out of sample against the same set of testing summary statistics.
+
+
+* run models or collect the data in the usual table y...x
+* Cross validation 5-folds
+* All methods use the same data along the same splits.
+
+
+Table: (\#tab:experimentsmasterlist)  List of experiments ran
+
+| Experiment               | No. of parameters | No. of summary statistics | No. of simulations | Testing            |
+|--------------------------|-------------------|---------------------------|--------------------|--------------------|
+| $\alpha$-stable          | 3                 | 11                        | 1,250 or 5,000     | 5-fold CV          |
+| Birds ABM                | 2                 | 2 or 105                  | 5,000              | 5-fold CV          |
+| Broken Line              | 1                 | 10                        | 1,250 or 5,000     | 5-fold CV          |
+| Coalescence              | 2                 | 7                         | 100,000            | Single testing set |
+| $g$-and-$k$ distribution | 4                 | 11                        | 1,250 or 5,000     | 5-fold CV          |
+| Hierarchical Normal Mean | 2                 | 61                        | 1,250 or 5,000     | 5-fold CV          |
+| Lotke-Volterra           | 2                 | 16 (noisy or non-noisy)   | 100,000            | Single testing set |
+| Locally Identifiable     | 2                 | 2                         | 1,250 or 5,000     | 5-fold CV          |
+| Median and MAD           | 2                 | 2 or 4                    | 1,250 or 5,000     | 5-fold CV          |
+| $\mu$-$\sigma^2$         | 2                 | 2                         | 10,000             | 5-fold CV          |
+| Normal 25                | 2                 | 25                        | 1,250 or 5,000     | 5-fold CV          |
+| Scale                    | 2                 | 1                         | 1,250 or 5,000     | 5-fold CV          |
+| Unidentifiable           | 2                 | 1                         | 1,250 or 5,000     | 5-fold CV          |
+| Partially Identifiable   | 2                 | 2                         | 1,250 or 5,000     | 5-fold CV          |
+| Real Business Cycle      | 6                 | 44 or 48                  | 2,944 or 2,961     | 5-fold CV          |
+| Pathogen                 | 4                 | 11                        | 200,000            | Single testing set |
+| Toy Model                | 2                 | 2                         | 1,250 or 5,000     | 5-fold CV          |
+| Ecological Traits        | 4                 | 4                         | 1,250 or 5,000     | 5-fold CV          |
+| Wilkinson                | 1                 | 1                         | 1,250 or 5,000     | 5-fold CV          |
+
+
+```{r}
+#get all the files
+error_table<-list.files(path, ".csv")  %>% 
+  #turn the vector into a data.frame (name-value)
+  enframe() %>%
+  #read each file
+  mutate( observations = map(file.path(path,value),~read_csv(.))) %>%
+  #clean up names
+  select(-name) %>% rename(experiment=value) %>% 
+  mutate(experiment=gsub(".csv","",experiment)) %>%
+  #unnest results and you are done
+  unnest(observations) 
+  
+
+```
+
+### Simple Problems
+
+Simple problems, simulations with few parameters and summary statistics, feature prominently in the ABC literature both to explore the methodology and to compare different techniques.
+They are useful because we can run them quickly but they may bias comparisons towards simpler estimation methods that do not benefit from many summary statistics.
+We compute predictivity and coverage for all the experiments in this section by 5-fold cross-validation: keeping one fifth of the data out of sample, using the remaining portion to train our algorithms and doing this five times, rotating each time the portion of data used for testing.
+We run all the experiments in this section twice: once the total data is 1250 sets of summary statistics and once where the total data is 5000 sets of summary statistics.
+
+*$\alpha$-stable*: @Rubio2013 uses ABC to recover the parameters of an $\alpha$-stable distribution by looking at sample of 1096 independent observations from it. We replicate this here using the original priors for the three parameters ($\alpha \sim U(1,2)$, $\mu \sim U(-0.1,0.1)$, $\sigma \sim U(0.0035,0.0125)$). We use 11 summary statistics representing the 0%,10%,$\dots$,100% deciles of each sample generated.
+
+*$g$-and-$k$ distribution*: @Karabatsos2017 uses ABC to estimate the parameters of the g-and-k distribution (an extension of the normal distribution whose density function has no analytical expression). We replicate this here using the `gk` package in R [@Prangle2017].
+We want to retrieve the 4 parameters of the distribution $A,B,g,k \sim U[0,10]$ given the 11 deciles (0%,10%,...,100%) of a sample of 1,000 observations from that distribution.
+
+*Normal 25*: Sometimes sufficient summary statistics exist but the modeller may miss them and use others of lower quality.
+In this example 25 i.i.d observations $\sim N(\mu,\sigma^2)| \mu \sim U(-5,5); \sigma \sim U(1,10)$ are used directly as summary statistics to retrieve the two distribution parameters.
+
+*Median and MAD*:  As a simple experiment we sample 100 observations from a normal distribution $\mu \sim U(-5,5)$ and $\sigma \sim U(0.1,10)$ and we collect as summary statistics their median and median absolute deviation, using them to retrieve the original distributions. 
+We run this experiment twice, once adding two useless summary statistics $S_3 \sim N(3,1)$ and $S_4 \sim N(100,.01)$.
+
+*$\mu$-$\sigma^2$*: The `abc` package in R [@Csillery2012] provides a simple dataset example connecting two observed statistics: "mean"" and "variance" as" generated by the parameters $\mu$ and $\sigma^2$. The posterior that connects the two derives from the Iris setosa observation [@Anderson1935].
+The data set contains 10,000 observations and we log-transform $\sigma^2$ when estimating.
+
+*Toy Model*:  A simple toy model suggested by the `EasyABC` R package[@Jabot2013]  involves retrieving two parameters, $a \sim U[0,1]; b \sim U[1,2]$, observing two summary statistics $S_1 = a + b + \epsilon_1 ; S_2 = a b +\epsilon_2 | \epsilon_1,\epsilon_2 \sim N(0,.1^2)$.
+
+
+*Ecological Traits*: The `EasyABC` R package[@Jabot2013] provides a replication of @Jabot2010, a trait-based ecological simulator. Here we fix the number of individuals to 500 and the number of traits to 1, leaving four free parameters: $I \sim U(3,5),A\sim U(0.1,5),h\sim U(-25,125),\sigma\sim U(0.5,25)$. We want to estimate these with four summary statistics: richness of community $S$, shannon index $H$, mean and skewness of traiv values in the community.
+
+
+*Wilkinson*: @wilkinsonnips in 2013 suggested a simple toy model with one parameter, $\theta \sim U(-10,10)$, and one summary statistic $S_1 \sim N(2 (\theta + 2) \theta(\theta-2), 0.1 + \theta^2)$.
+We run this experiment twice, once where the total data is 1,250 sets of summary statistics and one where the total data is 5,000 sets of summary statistics.
+
+### Ill-posed problems
+
+In social sciences models often face identification issues: the inability to recover parameters given the information we have [@Canova2005 provides a good review within the context of macroeconomics].
+Because these issues take many form, we produce a series of experiments to test each.
+As above we run all the experiments in this section twice: once the total data is 1250 sets of summary statistics and once where the total data is 5000 sets of summary statistics. 
+
+Ideally we would like two things from our estimation algorithms under these circumstances. 
+First we would like to maximize the quality of our estimated parameters when the information is noisy (the lesser problem of "weak" identification).
+Second we would like our estimation algorithm to recognize when the model cannot be identified and not be fooled into still producing an arbitrary estimate and a small confidence interval around it.
+
+*Broken Line*:  In @Carrella2018 we produced a simple model of "broken lines" where we observe 10 summary statistics $S=(S_0,\dots,S_9)$ generated by: 
+$$
+S_i=\left\{\begin{matrix}
+\epsilon & i < 5\\ 
+\beta i + \epsilon & i\geq5
+\end{matrix}\right. (\#eq:brokenline)  
+$$ 
+And tested ABC and indirect inference recovery of their only parameter $\beta$ against running a simple elastic-net regression[@Friedman2010]. 
+
+*Hierarchical Normal Mean*: @MarixnArxiv compares ABC to direct random forest estimation in a "toy" hierarchical normal mean model:
+$$
+\left.\begin{matrix}
+y_i |\theta_1,\theta_2 \sim N(\theta_1,\theta_2) \\ 
+\theta_1|\theta_2 \sim N(0,\theta_2) \\ 
+\theta_2 \sim IG(\kappa,\lambda)
+\end{matrix}\right. (\#eq:brokenline)  
+$$ 
+Where $IG(\cdot)$ is the inverse gamma distribution. We want to estimate $\theta_1,\theta_2$ given a sampled vecor $y$ of size 10 which is described by 61 summary statistics: the mean, the variance, the median absolute deviation of the sample, all possible combinations of their products and sums as well as 50 noise summary statistics $\sim U(0,1)$.
+
+*Locally Identifiable*: Macroeconomics often deals with structural models that are only locally identifiable [see @Fernandez-Villaverde2015]. These are models where the true parameter is only present in the data for some of its possible values. Here we use the example:
+$$
+S_i=\left\{\begin{matrix}
+y \sim N(\theta_1,\theta_2) & \theta_1>2, \theta_2>2\\ 
+y \sim N(0,1)  &  \text{Otherwise}
+\end{matrix}\right. (\#eq:local)  
+$$ 
+Where $\theta_1,\theta_2 \sim U[0.1,5]$, each simulation we sample the vector $y$ of size 100 and we collect its mean and standard deviation as summary statistics.
+
+*Scale*: A common source of under-identification in economics occurs when "when two structural parameters enter the objective function only proportionally, making them separately unrecoverable"[@Canova2005].
+In this example, two people of weight $w_1,w_2\sim U[80,150]$ step together on a scale whose reading $S_1 = w_1 + w_2 + \epsilon | \epsilon \sim N(0,1)$ is the only summary statistic we can use.
+This problem is locally identifiable to an extent: very low readings means both people are light (and viceversa).
+
+*Unidentifiable*:  In some cases the model parameters are just unrecoverable and we hope that our estimation algorithm does not tell us otherwise.
+In this example the three summary statistics $S_1,S_2,S_3 \sim N(x,1)| x \sim U[0,50]$ provide no information regarding the two parameters we are interested in: $\mu\sim U(0,50), \sigma \sim U(0,25)$.
+
+*Partially Identifiable*: @Fernandez-Villaverde2015 mentions how partial identification can occur when a model is the real data generating process conditional on some other unobserved parameter. This makes the model identifiable in some samples but not others. The example we use is a slight modification of the original where we try to retrieve parameter $\theta \sim U[1,5]$ when we observe mean and standard deviation of a size 10 vector $y$ generated as follows:
+$$
+y \sim N(\theta\cdot x,1), ~
+x=\left\{\begin{matrix}
+0 & \text{with probability } \frac 1 2\\ 
+ \sim N(1,1)  &  \text{Otherwise}
+\end{matrix}\right. (\#eq:partial)  
+$$ 
+
+### Complicated Problems
+
+In practice simulations, and in particular agent-based models, tend to be large
+
+
+
+
+
+(birds) @Thiele2014 estimated the parameters of a simple agent-based bird population model (originally in @Railsback2011) with ABC. The paper provided an open source NETLOGO implementation of the model. The model depends on two parameters: `scout-prob`$\sim U[0,0.5]$ and `survival-prob`$\sim U[0.95,1]$. We ran this experiment twice, once where there are only 2 summary statistics: mean abundance and mean variation over 20 years, and one where are 105 (comprising the average, last value, standard deviation, range and the coefficients of fitting an AR(5) regression to the time series of abundance, variation, months spent foraging and average age within bird population). 
+This experiment is useful because in the original specification (with 2 summary statistics) the `scout-prob` parameter is unidentifiable.
+For each experiment we ran the model 5000 times.
+
+
+
+
+(coal_quick) The abctools package [@RJ-2015-030] provides 100,000 observations of 7 summary statistics from a DNA coalescent model depending on two parameters $\theta \sim u[2,10]$ and $\rho \sim U[0,10]$. @Blum2013 in particular used this dataset to compare the quality of ABC dimensionality reduction schemes to better estimate the two parameters.
+This data-set is too big for cross-validation so in this experiment we simply used 1,250 observation as the testing data-set and the rest for training.
+
+
+
+(lk_noisy) @Toni2009 showcases SMC-ABC with a 2 species deterministic Lotke-Volterra model with 2 parameters: $a,b$.
+$$
+\left\{\begin{matrix}
+ \frac{dx}{dt} = ax - yx \\ 
+ \frac{dy}{dt} = bxy - y  
+\end{matrix}\right.
+$$ 
+Here we assume $a,b \sim U(0,10)$ (avoiding the negative values in the original paper).  For each simulation we sample 8 observations for predator and prey at time $t=1,1.2, 2.4, 3.9, 5.7, 7.5, 9.6, 11.9, 14.5$ (as in the original paper). 
+We run this experiment twice, once where data is observed perfectly and one where to each observation we add noise $\sim N(0,0.5)$.
+In both experiments we do not perform 5-fold cross validation, rather we generate 100,000 sets of summary statistics for training and another 1,250 sets of summary statistics to test the parametrization.
+
+
+
+
+
+
+(partial_medium) 
+
+
+(rbc_full) We want to parametrize the default Real Business Cycle model (a simple but outdated class of macro-economics models) implemented in the `gEcon` R package[@Klima2018].
+It has 6 parameters ($\beta,\delta,\eta,\mu,\phi,\sigma$) and we try to parametrize them in two separate experiments.
+In the first, we use as summary statistics the -10,+10 cross-correlation table between output $Y$, consumption $C$, investment $I$, interest rates $r$ and employment $L$ (44 summary statistics in total). For this experiment we have 2,944 distinct observations.
+In the second experiment we follow @Carrella2018 using as summary statistics (i) coefficients of regressing $Y$ on $Y_{t-1},I_{t},I_{t-1}$, (ii) coefficients of regressing $Y$ on $Y_{t-1},C_{t},C_{t-1}$, (iii)  coefficients of regressing $Y$ on $Y_{t-1},r_{t},r_{t-1}$, (iv) coefficients of regressing $Y$ on $Y_{t-1},L_{t},L_{t-1}$, (v) coefficients of regressing $Y$ on $C,r$ (vi) coefficients of fitting AR(5) on $Y$, (vii)  the (lower triangular) covariance matrix of $Y,I,C,r,L$. 48 summary statistics in total. For this experiment we have 2,961 distinct observations.
+
+(steel_quick) Another dataset used by  @Blum2013 to test dimensionality reduction methods for ABC concerns the ability to predict pathogens' fitness changes due to antibiotic resistance [the original model and data is from @Francis2009]. The model has four free parameters and 11 summary statistics.
+While the original data-set contains 1,000,000 separate observations, we only sample 200,000 at random for training the algorithms and 1,250 more for testing.
+
+
+
+
+# Results
+
+
+
+## Metrics
+
+
+
+## Main Results
+
+* Big predictivity table
+* Big histogram of confidence intervals
+* pareto front predictivity vs interval quality
+* pareto front interval quality vs size of interval
+
+* Who won most of the time?
+* Who has the lowest median error?
+* Who has the best confidence intervals?
+
+
+* Compare quantiles and bootstrap prediction errors
+
+* Compare linear regression with SABC
+
+* Compare improvements within techniques vs improvements by increasing data
+
+* Compare improvements within techniques vs improvements by increasing summary statistics
+
+## Discussions
+
+* There is no qualitative difference between them. In no case one algorithm identify a parameter that the others couldn't. 
+    * Parametrization is less about the method then and more about summary statistics
+    * Simple methods that easily expand to use (or at least self-select) summary statistics are probably more important than new fancy optimizations
+
+## Conclusions

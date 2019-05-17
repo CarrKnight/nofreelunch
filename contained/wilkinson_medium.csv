@@ -1,0 +1,10 @@
+method,parameter,value
+rejection,theta,0.9878
+sabc_4d,theta,0.9872
+loclin,theta,0.9471999999999999
+neuralnet,theta,0.9501999999999999
+lm,theta,0.9633999999999999
+rf,theta,0.7704
+loess,theta,0.9503999999999999
+rfboot,theta,0.9581999999999999
+average,theta,0.25

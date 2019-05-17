@@ -1,0 +1,1171 @@
+\documentclass[]{article}
+\usepackage{lmodern}
+\usepackage{amssymb,amsmath}
+\usepackage{ifxetex,ifluatex}
+\usepackage{fixltx2e} % provides \textsubscript
+\ifnum 0\ifxetex 1\fi\ifluatex 1\fi=0 % if pdftex
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+\else % if luatex or xelatex
+  \ifxetex
+    \usepackage{mathspec}
+  \else
+    \usepackage{fontspec}
+  \fi
+  \defaultfontfeatures{Ligatures=TeX,Scale=MatchLowercase}
+\fi
+% use upquote if available, for straight quotes in verbatim environments
+\IfFileExists{upquote.sty}{\usepackage{upquote}}{}
+% use microtype if available
+\IfFileExists{microtype.sty}{%
+\usepackage{microtype}
+\UseMicrotypeSet[protrusion]{basicmath} % disable protrusion for tt fonts
+}{}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\PassOptionsToPackage{usenames,dvipsnames}{color} % color is loaded by hyperref
+\hypersetup{unicode=true,
+            pdftitle={No free lunch when estimating simulation parameters},
+            colorlinks=true,
+            linkcolor=Maroon,
+            citecolor=Blue,
+            urlcolor=blue,
+            breaklinks=true}
+\urlstyle{same}  % don't use monospace font for urls
+\usepackage{longtable,booktabs}
+\usepackage{graphicx,grffile}
+\makeatletter
+\def\maxwidth{\ifdim\Gin@nat@width>\linewidth\linewidth\else\Gin@nat@width\fi}
+\def\maxheight{\ifdim\Gin@nat@height>\textheight\textheight\else\Gin@nat@height\fi}
+\makeatother
+% Scale images if necessary, so that they will not overflow the page
+% margins by default, and it is still possible to overwrite the defaults
+% using explicit options in \includegraphics[width, height, ...]{}
+\setkeys{Gin}{width=\maxwidth,height=\maxheight,keepaspectratio}
+\IfFileExists{parskip.sty}{%
+\usepackage{parskip}
+}{% else
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt plus 2pt minus 1pt}
+}
+\setlength{\emergencystretch}{3em}  % prevent overfull lines
+\providecommand{\tightlist}{%
+  \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
+\setcounter{secnumdepth}{5}
+% Redefines (sub)paragraphs to behave more like sections
+\ifx\paragraph\undefined\else
+\let\oldparagraph\paragraph
+\renewcommand{\paragraph}[1]{\oldparagraph{#1}\mbox{}}
+\fi
+\ifx\subparagraph\undefined\else
+\let\oldsubparagraph\subparagraph
+\renewcommand{\subparagraph}[1]{\oldsubparagraph{#1}\mbox{}}
+\fi
+
+%%% Use protect on footnotes to avoid problems with footnotes in titles
+\let\rmarkdownfootnote\footnote%
+\def\footnote{\protect\rmarkdownfootnote}
+
+%%% Change title format to be more compact
+\usepackage{titling}
+
+% Create subtitle command for use in maketitle
+\providecommand{\subtitle}[1]{
+  \posttitle{
+    \begin{center}\large#1\end{center}
+    }
+}
+
+\setlength{\droptitle}{-2em}
+
+  \title{No free lunch when estimating simulation parameters}
+    \pretitle{\vspace{\droptitle}\centering\huge}
+  \posttitle{\par}
+    \author{true}
+    \preauthor{\centering\large\emph}
+  \postauthor{\par}
+      \predate{\centering\large\emph}
+  \postdate{\par}
+    \date{2019-05-08}
+
+\usepackage{algorithmic}
+\usepackage{algorithm}
+
+\begin{document}
+\maketitle
+\begin{abstract}
+We estimate the parameters of 21 simulation models using 9 estimation algorithms to discover which one is better at matching simulations to data. Unfortunately no single algorithm is best at minimizing estimation error for all or even most the simulations; the best algorithm differs for each simulation, and sometimes for each parameter of each simulation. Cross-validation is necessary to pair each simulation's parameter to its appropriate estimation algorithm. This is computationally feasible for reference table algorithms. In terms of confidence intervals the results are more clear: bootstrap generates more precise prediction intervals than either quantiles or Approximate Bayesian Computation.
+\end{abstract}
+
+{
+\hypersetup{linkcolor=black}
+\setcounter{tocdepth}{2}
+\tableofcontents
+}
+\hypertarget{keywords}{%
+\section*{Keywords}\label{keywords}}
+\addcontentsline{toc}{section}{Keywords}
+
+Agent-based models;
+Individual-based models;
+Estimation;
+Calibration;
+Approximate Bayesian Computation;
+Random Forest;
+Generalized Additive Model;
+Bootstrap;
+
+\hypertarget{introduction}{%
+\section{Introduction}\label{introduction}}
+
+Models take parameters as input to describe and predict a phenomenon.
+When we gather real data we can search for the input parameters that most likely generated it.
+This is difficult for simulation models whose likelihood function is often unknown or intractable.
+Fortunately, many likelihood-free estimation algorithms are available(Hartig et al. \protect\hyperlink{ref-hartig_statistical_2011}{2011}).
+We would like to know if any of them estimate parameters better, particularly when data is high dimensional, simulating is computationally expensive and in the presence of identification issues.
+
+In this paper we estimate the parameters of 21 simulations with nine different algorithms.
+We focus on ``reference table'' algorithms: rejection ABC (Approximate Bayesian Computation as in Beaumont, Zhang, and Balding \protect\hyperlink{ref-Beaumont2002}{2002}), regression-adjusted ABC and regression-only methods.
+We rank them by their estimation error and the quality of their confidence intervals.
+Superficially, there is a winner: GAM, generalized additive models, regressions (Hastie and Tibshirani \protect\hyperlink{ref-Hastie1986}{1986}; Wood and Augustin \protect\hyperlink{ref-Wood2002}{2002}) produce most often the lowest estimation errors, the best confidence intervals and no identification failures.
+Even so, GAMs produce the best estimates for only 30\% of the parameters. In fact, each of the algorithms tested is the best estimator in at least one instance.
+
+Since best estimation algorithm changes between simulations and even between parameters of the same simulation, there is no alternative to test multiple algorithms against each parameter of a simulation.
+Fortunately this plays to the advantage of reference table algorithms since the data used to train one algorithm can be recycled to train all the others as well as rank them by cross-validation.
+
+\hypertarget{materials-and-methods}{%
+\section{Materials and Methods}\label{materials-and-methods}}
+
+We define here a simulation model as any function that depends on a set of parameter \(\theta\) to generate a set of summary statistic \(S(\theta)\).
+We are interested in the estimation problem where we observe summary statistics \(S^*\) and we want to know which parameter \(\theta^*\) most likely generated them.
+
+We parametrize 21 simulation models (described in section \ref{experiments}).
+We have nine candidate algorithms to do so (described in section \ref{algorithms}).
+All are ``reference table'' algorithms: algorithms whose only input for estimation is a table of simulation parameters \(\theta\), selected by random sampling, and the summary statistics \(S(\theta)\) they generate.
+We split this reference table into training and testing sets and ask each algorithm to estimate the parameters of the testing set observing only the training portion of the reference table.
+
+We measure algorithm performance with two indicators: predictivity and coverage.
+Predictivity (Salle and Yıldızoğlu \protect\hyperlink{ref-Salle2014}{2014}; modelling efficiency in Stow et al. \protect\hyperlink{ref-Stow2009}{2009}) is the out of sample mean square error when using a particular algorithm normalized by the mean square error of using the average parameter instead:
+\begin{equation} 
+ 1 - \frac{ \sum \left( \theta_i - \hat \theta_i \right)^2}{ \sum \left( \theta_i - \bar \theta \right)^2} 
+\label{eq:predictivitycoefficient}
+\end{equation}
+Where \(\hat \theta\) is the estimated parameter, \(\theta\) is the real simulation parameter and \(\bar \theta\) is the average parameter value.
+Predictivity ranges from 1 (perfectly estimated) to 0 (unidentified) to negative values (misidentified).
+
+We define coverage as in Raynal et al. (\protect\hyperlink{ref-MarixnArxiv}{2018}) as the percentage of times the real parameter falls within the 95\% prediction intervals suggested by the estimating algorithm. The best coverage is 95\%: higher generates type I errors, lower generates type II errors.
+
+\hypertarget{experiments}{%
+\subsection{Models}\label{experiments}}
+
+We estimate the parameters of 21 separate simulations, repeating some with different amount of data or summary statistics.
+We can roughly categorize the simulations into three groups: simple, ill posed and complicated.
+Table \ref{tab:experimentsmasterlist} lists them all.
+
+\begin{longtable}[]{@{}lllll@{}}
+\caption{\label{tab:experimentsmasterlist} List of all the models parametrized}\tabularnewline
+\toprule
+\begin{minipage}[b]{0.20\columnwidth}\raggedright
+Experiment\strut
+\end{minipage} & \begin{minipage}[b]{0.15\columnwidth}\raggedright
+No.~of parameters\strut
+\end{minipage} & \begin{minipage}[b]{0.21\columnwidth}\raggedright
+No.~of summary statistics\strut
+\end{minipage} & \begin{minipage}[b]{0.15\columnwidth}\raggedright
+No.~of simulations\strut
+\end{minipage} & \begin{minipage}[b]{0.15\columnwidth}\raggedright
+Testing\strut
+\end{minipage}\tabularnewline
+\midrule
+\endfirsthead
+\toprule
+\begin{minipage}[b]{0.20\columnwidth}\raggedright
+Experiment\strut
+\end{minipage} & \begin{minipage}[b]{0.15\columnwidth}\raggedright
+No.~of parameters\strut
+\end{minipage} & \begin{minipage}[b]{0.21\columnwidth}\raggedright
+No.~of summary statistics\strut
+\end{minipage} & \begin{minipage}[b]{0.15\columnwidth}\raggedright
+No.~of simulations\strut
+\end{minipage} & \begin{minipage}[b]{0.15\columnwidth}\raggedright
+Testing\strut
+\end{minipage}\tabularnewline
+\midrule
+\endhead
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+\(\alpha\)-stable\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+3\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+11\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Birds ABM\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+2 or 105\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Broken Line\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+10\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Coalescence\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+7\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+100,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+Single testing set\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Earthworm\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+11\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+160\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+100,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+Single testing set\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+\(g\)-and-\(k\) distribution\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+4\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+11\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Hierarchical Normal Mean\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+61\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Lotke-Volterra\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+16 (noisy or non-noisy)\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+100,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+Single testing set\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Locally Identifiable\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Moving Average (2)\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Median and MAD\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+2 or 4\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+\(\mu\)-\(\sigma^2\)\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+10,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Normal 25\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+25\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Scale\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+1\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Unidentifiable\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+1\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Partially Identifiable\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Real Business Cycle\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+6\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+44 or 48\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2,944 or 2,961\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Pathogen\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+4\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+11\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+200,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+Single testing set\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Toy Model\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+2\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Ecological Traits\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+4\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+4\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\begin{minipage}[t]{0.20\columnwidth}\raggedright
+Wilkinson\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1\strut
+\end{minipage} & \begin{minipage}[t]{0.21\columnwidth}\raggedright
+1\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+1,250 or 5,000\strut
+\end{minipage} & \begin{minipage}[t]{0.15\columnwidth}\raggedright
+5-fold CV\strut
+\end{minipage}\tabularnewline
+\bottomrule
+\end{longtable}
+
+\hypertarget{simple-simulations}{%
+\subsubsection{Simple simulations}\label{simple-simulations}}
+
+Simple simulations, few parameters and summary statistics, feature prominently in the ABC literature both as a teaching tool and to compare different techniques.
+They are useful because they run quickly but they may bias comparisons towards simpler estimation algorithms.
+We compute predictivity and coverage for all the experiments in this section by 5-fold cross-validation: keeping one fifth of the data out of sample, using the remaining portion to train our algorithms and doing this five times, rotating each time the portion of data used for testing.
+We run all the experiments in this section twice: once the total data is 1,250 simulation runs and once it is 5,000 simulation runs.
+
+\emph{\(\alpha\)-stable}: Rubio and Johansen (\protect\hyperlink{ref-Rubio2013}{2013}) uses ABC to recover the parameters of an \(\alpha\)-stable distribution by looking at sample of 1096 independent observations from it. We replicate this here using the original priors for the three parameters (\(\alpha \sim U(1,2)\), \(\mu \sim U(-0.1,0.1)\), \(\sigma \sim U(0.0035,0.0125)\)). We use 11 summary statistics representing the 0\%,10\%,\(\dots\),100\% deciles of each sample generated.
+
+\emph{\(g\)-and-\(k\) distribution}: Karabatsos and Leisen (\protect\hyperlink{ref-Karabatsos2017}{2017}) uses ABC to estimate the parameters of the g-and-k distribution (an extension of the normal distribution whose density function has no analytical expression). We replicate this here using the \texttt{gk} package in R (Prangle \protect\hyperlink{ref-Prangle2017}{2017}).
+We want to retrieve the 4 parameters of the distribution \(A,B,g,k \sim U[0,10]\) given the 11 deciles (0\%,10\%,\ldots,100\%) of a sample of 1,000 observations from that distribution.
+
+\emph{Normal 25}: Sometimes sufficient summary statistics exist but the modeller may miss them and use others of lower quality.
+In this example 25 i.i.d observations from the same normal distribution \(\sim N(\mu,\sigma^2)| \mu \sim U(-5,5); \sigma \sim U(1,10)\) are used directly as summary statistics to retrieve the two distribution parameters \(\mu,\sigma^2\).
+
+\emph{Moving Average(2)}: Creel (\protect\hyperlink{ref-Creel2017}{2017}) used neural networks to recover the parameters of the MA(2) process with \(\beta_1 \sim U(-2,2); \beta_2\sim U(-1,1)\). We observe generated a time series of size 100 and we summarise it with the coefficients a AR(10) regression.
+
+\emph{Median and MAD}: As a simple experiment we sample 100 observations from a normal distribution \(\mu \sim U(-5,5)\) and \(\sigma \sim U(0.1,10)\) and we collect as summary statistics their median and median absolute deviation, using them to retrieve the original distributions.
+We run this experiment twice, the second time adding two useless summary statistics \(S_3 \sim N(3,1)\) and \(S_4 \sim N(100,.01)\).
+
+\emph{\(\mu\)-\(\sigma^2\)}: The \texttt{abc} package in R (Csilléry, François, and Blum \protect\hyperlink{ref-Csillery2012}{2012}) provides a simple dataset example connecting two observed statistics: ``mean''" and ``variance'' as" generated by the parameters \(\mu\) and \(\sigma^2\). The posterior that connects the two derives from the Iris setosa observation (Anderson \protect\hyperlink{ref-Anderson1935}{1935}).
+The data set contains 10,000 observations and we log-transform \(\sigma^2\) when estimating.
+
+\emph{Toy Model}: A simple toy model suggested by the \texttt{EasyABC} R package(Jabot, Faure, and Dumoulin \protect\hyperlink{ref-Jabot2013}{2013}) involves retrieving two parameters, \(a \sim U[0,1]; b \sim U[1,2]\), observing two summary statistics \(S_1 = a + b + \epsilon_1 ; S_2 = a b +\epsilon_2 | \epsilon_1,\epsilon_2 \sim N(0,.1^2)\).
+
+\emph{Ecological Traits}: The \texttt{EasyABC} R package(Jabot, Faure, and Dumoulin \protect\hyperlink{ref-Jabot2013}{2013}) provides a replication of Jabot (\protect\hyperlink{ref-Jabot2010}{2010}), a trait-based ecological simulator. Here we fix the number of individuals to 500 and the number of traits to 1, leaving four free parameters: \(I \sim U(3,5),A\sim U(0.1,5),h\sim U(-25,125),\sigma\sim U(0.5,25)\). We want to estimate these with four summary statistics: richness of community \(S\), shannon index \(H\), mean and skewness of traiv values in the community.
+
+\emph{Wilkinson}: Wilkinson (\protect\hyperlink{ref-wilkinsonnips}{2013}) suggested a simple toy model with one parameter, \(\theta \sim U(-10,10)\), and one summary statistic \(S_1 \sim N(2 (\theta + 2) \theta(\theta-2), 0.1 + \theta^2)\).
+We run this experiment twice, once where the total data is 1,250 sets of summary statistics and one where the total data is 5,000 sets of summary statistics.
+
+\hypertarget{ill-posed-models}{%
+\subsubsection{Ill-posed Models}\label{ill-posed-models}}
+
+We often face identification issues: the inability to recover parameters given the information we have.
+Because these issues take many forms, we produce a series of experiments to test each.
+As with simple simulations, we test all the experiments with 5-fold cross validation and run each twice: once where the total reference table has 1,250 total rows, and once where it has 5,000.
+
+Ideally two behaviours should emerge from an estimation algorithm under these circumstances.
+First we would like to maximize the quality of our estimated parameters when the information is noisy (the lesser problem of ``weak'' identification).
+Second we would like our estimation algorithm to recognize when the model cannot be identified and not be fooled into still producing an arbitrary estimate and a small confidence interval around it.
+
+\emph{Broken Line}: we observe 10 summary statistics \(S=(S_0,\dots,S_9)\) generated by:
+\[
+S_i=\left\{\begin{matrix}
+\epsilon & i < 5\\ 
+\beta i + \epsilon & i\geq5
+\end{matrix}\right. \label{eq:brokenline}  
+\]
+and where \(\beta \sim U(0,2)\)
+
+\emph{Hierarchical Normal Mean}: Raynal et al. (\protect\hyperlink{ref-MarixnArxiv}{2018}) compares ABC to direct random forest estimation in a ``toy'' hierarchical normal mean model:
+\[
+\left.\begin{matrix}
+y_i |\theta_1,\theta_2 \sim N(\theta_1,\theta_2) \\ 
+\theta_1|\theta_2 \sim N(0,\theta_2) \\ 
+\theta_2 \sim IG(\kappa,\lambda)
+\end{matrix}\right. \label{eq:hierarchicalnormalmean}  
+\]
+Where \(IG(\cdot)\) is the inverse gamma distribution. We want to estimate \(\theta_1,\theta_2\) given a sampled vecor \(y\) of size 10 which is described by 61 summary statistics: the mean, the variance, the median absolute deviation of the sample, all possible combinations of their products and sums as well as 50 noise summary statistics \(\sim U(0,1)\).
+
+\emph{Locally Identifiable}: macroeconomics often deals with structural models that are only locally identifiable (see Fernández-Villaverde, Rubio Ramírez, and Schorfheide \protect\hyperlink{ref-Fernandez-Villaverde2015}{2016}). These are models where the true parameter is only present in the data for some of its possible values. Here we use the example:
+\[
+S_i=\left\{\begin{matrix}
+y \sim N(\theta_1,\theta_2) & \theta_1>2, \theta_2>2\\ 
+y \sim N(0,1)  &  \text{Otherwise}
+\end{matrix}\right. \label{eq:local}  
+\]
+Where \(\theta_1,\theta_2 \sim U[0.1,5]\), each simulation we sample the vector \(y\) of size 100 and we collect its mean and standard deviation as summary statistics.
+
+\emph{Scale}: a common source of under-identification in economics occurs when ``when two structural parameters enter the objective function only proportionally, making them separately unrecoverable''(Canova and Sala \protect\hyperlink{ref-Canova2005}{2009}).
+In this example, two people of weight \(w_1,w_2\sim U[80,150]\) step together on a scale whose reading \(S_1 = w_1 + w_2 + \epsilon | \epsilon \sim N(0,1)\) is the only summary statistic we can use.
+This problem is locally identifiable to an extent: very low readings means both people are light (and viceversa).
+
+\emph{Unidentifiable}: in some cases the model parameters are just unrecoverable and we hope that our estimation algorithm does not tell us otherwise.
+In this example the three summary statistics \(S_1,S_2,S_3 \sim N(x,1)| x \sim U[0,50]\) provide no information regarding the two parameters we are interested in: \(\mu\sim U(0,50), \sigma \sim U(0,25)\).
+
+\emph{Partially Identifiable}: Fernández-Villaverde, Rubio Ramírez, and Schorfheide (\protect\hyperlink{ref-Fernandez-Villaverde2015}{2016}) mention how partial identification can occur when a model is the real data generating process conditional on some other unobserved parameter. This makes the model identifiable in some samples but not others. The example we use is a slight modification of the original: we try to retrieve parameter \(\theta \sim U[1,5]\) when we observe mean and standard deviation of a size 10 vector \(y\) generated as follows:
+\[
+y \sim N(\theta\cdot x,1), ~
+x=\left\{\begin{matrix}
+0 & \text{with probability } \frac 1 2\\ 
+ \sim N(1,1)  &  \text{Otherwise}
+\end{matrix}\right. \label{eq:partial}  
+\]
+
+\hypertarget{complicated-models}{%
+\subsubsection{Complicated Models}\label{complicated-models}}
+
+Simulations, particularly agent-based models, tend to be large. They involve many input parameters and summary statistics.
+Inference in a high-dimensional space is difficult not just for ABC methods but for non-parametric smoothing as well (see section 4.5 in Wasserman \protect\hyperlink{ref-Wasserman2006}{2006}).
+In principle one could solve this by just simulating more data but complicated simulation models tend also to be slow.
+This puts a premium on the quality of the algorithms to extrapolate from the data they have.
+
+\emph{Birds ABM}: Thiele, Kurth, and Grimm (\protect\hyperlink{ref-Thiele2014}{2014}) estimated the parameters of a simple agent-based bird population model (originally in Railsback and Grimm (\protect\hyperlink{ref-Railsback2011}{2012})) with ABC. Their paper provided an open source NETLOGO implementation of the model. The model depends on two parameters: \texttt{scout-prob}\(\sim U[0,0.5]\) and \texttt{survival-prob}\(\sim U[0.95,1]\). We ran this experiment twice, once where there are only 2 summary statistics: mean abundance and mean variation over 20 years, and one where are 105 (comprising the average, last value, standard deviation, range and the coefficients of fitting an AR(5) regression to the time series of abundance, variation, months spent foraging and average age within bird population).
+This experiment is useful because in the original specification (with 2 summary statistics) the \texttt{scout-prob} parameter is unidentifiable.
+For each experiment we ran the model 5000 times.
+
+\emph{Coalescence}: the \texttt{abctools} package (Nunes and Prangle \protect\hyperlink{ref-Nunes2015}{2015}) provides 100,000 observations of 7 summary statistics from a DNA coalescent model depending on two parameters \(\theta \sim u[2,10]\) and \(\rho \sim U[0,10]\). Blum et al. (\protect\hyperlink{ref-Blum2013}{2013}) in particular used this dataset to compare the quality of ABC dimensionality reduction schemes to better estimate the two parameters.
+This data-set is too big for cross-validation so in this experiment we simply used 1,250 observation as the testing data-set and the rest for training.
+
+\emph{Lotke-Volterra}: Toni et al. (\protect\hyperlink{ref-Toni2009}{2009}) showcases SMC-ABC with a 2 species deterministic Lotke-Volterra model with 2 parameters: \(a,b\).
+\[
+\left\{\begin{matrix}
+ \frac{dx}{dt} = ax - yx \\ 
+ \frac{dy}{dt} = bxy - y  
+\end{matrix}\right.
+\]
+Here we assume \(a,b \sim U(0,10)\) (avoiding the negative values in the original paper). For each simulation we sample 8 observations for predator and prey at time \(t=1,1.2, 2.4, 3.9, 5.7, 7.5, 9.6, 11.9, 14.5\) (as in the original paper).
+We run this experiment twice, once where data is observed perfectly and one where to each observation we add noise \(\sim N(0,0.5)\).
+In both experiments we do not perform 5-fold cross validation, rather we generate 100,000 sets of summary statistics for training and another 1,250 sets of summary statistics to test the parametrization.
+
+\emph{Real Business Cycle}: we want to parametrize the default Real Business Cycle model (a simple but outdated class of macro-economics models) implemented in the \texttt{gEcon} R package(Klima, Podemski, and Retkiewicz-Wijtiwiak \protect\hyperlink{ref-Klima2018}{2018}).
+It has 6 parameters (\(\beta,\delta,\eta,\mu,\phi,\sigma\)) and we try to parametrize them in two separate experiments.
+In the first, we use as summary statistics the -10,+10 cross-correlation table between output \(Y\), consumption \(C\), investment \(I\), interest rates \(r\) and employment \(L\) (44 summary statistics in total). For this experiment we have 2,944 distinct observations.
+In the second experiment we follow Carrella, Bailey, and Madsen (\protect\hyperlink{ref-Carrella2018}{2018}) using as summary statistics (i) coefficients of regressing \(Y\) on \(Y_{t-1},I_{t},I_{t-1}\), (ii) coefficients of regressing \(Y\) on \(Y_{t-1},C_{t},C_{t-1}\), (iii) coefficients of regressing \(Y\) on \(Y_{t-1},r_{t},r_{t-1}\), (iv) coefficients of regressing \(Y\) on \(Y_{t-1},L_{t},L_{t-1}\), (v) coefficients of regressing \(Y\) on \(C,r\) (vi) coefficients of fitting AR(5) on \(Y\), (vii) the (lower triangular) covariance matrix of \(Y,I,C,r,L\). 48 summary statistics in total. For this experiment we have 2,961 distinct observations.
+
+\emph{Pathogen}: another dataset used by Blum et al. (\protect\hyperlink{ref-Blum2013}{2013}) to test dimensionality reduction methods for ABC concerns the ability to predict pathogens' fitness changes due to antibiotic resistance (the original model and data is from Francis et al. \protect\hyperlink{ref-Francis2009}{2009}). The model has four free parameters and 11 summary statistics.
+While the original data-set contains 1,000,000 separate observations, we only sample 200,000 at random for training the algorithms and 1,250 more for testing.
+
+\emph{Earthworm}: Vaart et al. (\protect\hyperlink{ref-VanderVaart2015}{2015}) calibrated an agent-based model of earthworms with rejection ABC. The simplified version of the model contains 11 parameters and 160 summary statistics. The original paper already carried out cross-validation proving under-identification: the model contains a mixture of unidentified, weakly identified and well identified parameters.
+We use 100,000 runs from the original paper, setting 1,250 aside for out of sample testing and using the rest for training.
+
+\hypertarget{algorithms}{%
+\subsection{Algorithms}\label{algorithms}}
+
+We test nine algorithms to parametrize simulations: five are ABC and four are regressions-only.
+In this paper we focused exclusively on reference table algorithms.
+We thus ignored methods that combine search and estimation, such as synthetic likelihood (Wood \protect\hyperlink{ref-Wood2010}{2010}; Fasiolo and Wood \protect\hyperlink{ref-fasiolo2014introduction}{2014}), ABC-MCMC (Hartig et al. \protect\hyperlink{ref-hartig_statistical_2011}{2011}) and Bayesian optimization (Snoek, Larochelle, and Adams \protect\hyperlink{ref-Snoek2012}{2012}).
+We also ignored regression-only techniques that do not generate prediction intervals such as the deep neural networks proposed in Creel (\protect\hyperlink{ref-Creel2017}{2017}) and the elastic nets proposed in Carrella, Bailey, and Madsen (\protect\hyperlink{ref-Carrella2018}{2018}).
+
+\hypertarget{abc}{%
+\subsubsection{ABC}\label{abc}}
+
+The first algorithm we use is the simple rejection ABC (Pritchard et al. \protect\hyperlink{ref-Pritchard1999}{1999}; Beaumont, Zhang, and Balding \protect\hyperlink{ref-Beaumont2002}{2002}). Start by ranking all training observations by their euclidean distance to the testing summary statistics \(\left( \sum_i S_i(\theta) - S_i(\theta^*) \right)^2\). Ignore all training observations except the closest 10\%.
+Use the \(\theta\) parameters of the accepted observations to generate the posterior estimate for the testing parameter \(\theta^*\).
+
+The second algorithm is the local-linear regression adjusted ABC (Beaumont, Zhang, and Balding \protect\hyperlink{ref-Beaumont2002}{2002}).
+Weigh all training observations by an Epanechnikov kernel with bandwidth equal to euclidean the distance between the testing summary statistics \(S(\theta^*)\) and the furthest \(S(\theta)\) we would have accepted using simple rejection.
+Then run a local-linear regression on the weighted training set to predict \(E[\theta |S(\theta)]\) and use the residuals of that regression to estimate the posterior distribution for the testing parameter \(\theta^*\).
+
+The third algorithm, neural network ABC, feeds the same weighted training set to a feed forward neural network (Blum and Francois \protect\hyperlink{ref-Blum2010}{2010}).
+The approach is similar to the local-linear regression above but the residuals are also weighted by a second regression (on the log squared residuals) to correct for heteroskedasticity.
+
+These three algorithms are implemented in the \texttt{abc} package(Csilléry, François, and Blum \protect\hyperlink{ref-Csillery2012}{2012}) in R. We used the package default settings for its neural networks (10 networks, 5 units in the hidden layer and weight decay randomly chosen for each network between \(0.0001\),\(0.001\) and \(0.01\)).
+
+The fourth and fifth algorithm are semi-automatic ABC methods which ``pre-process'' summary statistics before applying rejection ABC(Prangle et al. \protect\hyperlink{ref-Prangle2014}{2014}).
+More precisely, the original summary statistics \(S(\theta)\) are fed into a set linear regressions estimating \(r_i=E[\theta_i|S(\theta)]\) (one for each parameter of the model) and then regression fitted values are used as summary statistics for the simple rejection ABC.
+The rationale is that these regressions will project the summary statistics into a space where rejection ABC performs better.
+We do this in two different ways here: by running first or fourth degree linear regressions in the pre-processing phase.
+This is done using the R package \texttt{abctools}(Nunes and Prangle \protect\hyperlink{ref-Nunes2015}{2015}) and their default parameters: using half of the training set to run the regression and the other half to run the rejection ABC.
+
+A feature of all ABC methods is that they are local: they remove or weight training observations differently depending on the \(\theta^*\) we want to estimate.
+This means that during cross-validation we need to retrain each ABC for each row of the testing set.
+
+\hypertarget{regression-only}{%
+\subsubsection{Regression Only}\label{regression-only}}
+
+Estimating parameters by regression is a straightforward process.
+We build a separate regression \(r\) for each \(\theta\) in the training set as dependent variable using the summary statistics \(S(\theta)\) as the independent variables.
+We then plug in these regressions the testing summary statistic \(S(\theta^*)\) to predict the testing parameter \(\theta^*\).
+When a simulation depends on multiple parameters we build a separate regression for each parameter.
+
+The simplest algorithm of this class is linear regression of degree one.
+It is linear, its output is understandable and is fast to compute.
+This speed allows us to estimate the prediction interval of \(\theta^*\) by resampling bootstrap(Davison and Hinkley \protect\hyperlink{ref-Davison}{1997}): we produce 200 training data sets by resampling with replacement from the original one and run the same linear regression on on each new data set.
+From each regression \(i\) we collect their prediction \(\beta_i S(\theta^*)\) and sample one standardized residual \(e\) (a residual divided by the square root of one minus the hat value associated with that residual).
+This produces a set of 200 \(\beta_i S(\theta) + e_i\).
+The 95\% prediction interval is then defined by 2.5 and 97.5 percentile of this set.
+
+A more complex algorithm that is not linear but still additive is the generalized additive model(GAM), where we regress:
+\[ \theta = \sum s_i(S_i(\theta)) \]
+\(s_i\) is a smooth spline transformation (see chapter 9 in Hastie, Tibshirani, and Friedman \protect\hyperlink{ref-friedman_elements_2001}{2009}; also Wood and Augustin \protect\hyperlink{ref-Wood2002}{2002}).
+We use the \texttt{mgcv} R package(Wood \protect\hyperlink{ref-Wood2017}{2017}, \protect\hyperlink{ref-Wood2004}{2004}).
+The boostrap prediction intervals techniques we used for linear regressions is too computationally expensive to replicate with GAMs.
+Instead we produce prediction intervals by assuming normal standard errors (generated by the regression itself) and by resampling residuals directly: we generate 10,000 draws of \(z(S(\theta))+\epsilon\) where \(z\) is normally distributed with standard deviation equal to regression's standard error at \(S(\theta)\) and \(\epsilon\) is a randomly drawn residual of the original regression.\\
+The 95\% prediction interval for \(\theta^*\) is then defined by 2.5 and 97.5 percentile of the generated \(z(S(\theta^*))+\epsilon\) set.
+
+A completely non-parametric regression advocated in Raynal et al. (\protect\hyperlink{ref-MarixnArxiv}{2018}) is the random forest(Breiman \protect\hyperlink{ref-Breiman2001}{2001}).
+We implement this in two ways here.
+First, as a quantile random forest (Meinshausen \protect\hyperlink{ref-Meinshausen2006}{2006}), using in \texttt{quantregForest} R package (Meinshausen \protect\hyperlink{ref-Meinshausen2017}{2017}); prediction intervals for any simulation parameter \(\theta^*\) are the predicted 2.5 and 97.5 quantile at \(S(\theta^*)\).
+Second, as a regression random forest using the \texttt{ranger} and \texttt{caret} packages in R (Wright and Ziegler \protect\hyperlink{ref-Wright2015}{2015}; Kuhn \protect\hyperlink{ref-Kuhn2008}{2008}).
+For this method we generate prediction intervals as in GAM regressions.
+We generate 10,000 draws of \(z(S(\theta))+\epsilon\) where \(z\) is normally distributed with standard deviation equal to the infinitesimal jackknife standard error(Wager, Hastie, and Efron \protect\hyperlink{ref-Wager2014}{2014}) at \(S(\theta)\) and \(\epsilon\) is a resampled residual; we then take the 2.5 and 97.5 percentile of the \(z(S(\theta^*))+\epsilon\) set as our prediction interval.
+
+\hypertarget{results}{%
+\section{Results}\label{results}}
+
+\hypertarget{predictivity}{%
+\subsection{Predictivity}\label{predictivity}}
+
+Table \ref{tab:predictiontable} summarises the predictivity of each algorithm across all identifiable estimation problems (here defined as those where at least one algorithm achieves predictivity of 0.05 or above).
+Estimation by GAM achieves the highest average predictivity and the lowest regret (average distance between its predictivity and the highest predictivity in each simulation). Even so, GAM has the best predictivity only for 30 out of a total of 93 identifiable parameters.
+
+Non-linear methods like Random Forest and Neural Network ABC have high average predictivity and together they account for the top performance of another 35 parameters.
+Local-linear ABC is on average a very effective algorithm but its average predictivity is penalized by very large errors in a few experiments (in particular the ``Hierarchical Normal Mean'').
+
+\begin{longtable}[]{@{}lrll@{}}
+\caption{\label{tab:predictiontable}Table showing for each algorithm how many parameters were best estimated by that algorithm; regret, defined as the average \% loss between the predictivity of the algorithm and the best predictivity in each estimation; the average predictivity overall. Local-linear ABC average is distorted by its poor performance in the `Hierarchical Normal Mean' simulation. Only estimations for which at least one method achieved predictivity above 0.05 were considered.}\tabularnewline
+\toprule
+Algorithm & \# of times highest predictivity & Regret & Average predictivity\tabularnewline
+\midrule
+\endfirsthead
+\toprule
+Algorithm & \# of times highest predictivity & Regret & Average predictivity\tabularnewline
+\midrule
+\endhead
+Rejection ABC & 2 & -0.433 & 0.348\tabularnewline
+Semi-automatic ABC 4D & 2 & -0.207 & 0.476\tabularnewline
+Semi-automatic ABC 1D & 1 & -0.297 & 0.424\tabularnewline
+Local-linear ABC & 15 & \textless{} -10 & \textless{} -10\tabularnewline
+Neural Network ABC & 12 & -0.120 & 0.556\tabularnewline
+Linear Regression & 8 & -0.248 & 0.479\tabularnewline
+GAM & 30 & -0.072 & 0.577\tabularnewline
+Quantile Random Forest & 3 & -0.187 & 0.547\tabularnewline
+Regression Random Forest & 20 & -0.117 & 0.571\tabularnewline
+\bottomrule
+\end{longtable}
+
+\begin{longtable}[]{@{}lrll@{}}
+\caption{\label{tab:predictiontable}Table showing for each algorithm how many parameters were best estimated by that algorithm; regret, defined as the average \% loss between the predictivity of the algorithm and the best predictivity in each estimation; the average predictivity overall. Local-linear ABC average is distorted by its poor performance in the `Hierarchical Normal Mean' simulation. Only estimations for which at least one method achieved predictivity above 0.05 were considered.}\tabularnewline
+\toprule
+Algorithm & \# of times highest predictivity & Regret & Average predictivity\tabularnewline
+\midrule
+\endfirsthead
+\toprule
+Algorithm & \# of times highest predictivity & Regret & Average predictivity\tabularnewline
+\midrule
+\endhead
+Rejection ABC & 2 & -0.433 & 0.348\tabularnewline
+Semi-automatic ABC 4D & 2 & -0.207 & 0.476\tabularnewline
+Semi-automatic ABC 1D & 1 & -0.297 & 0.424\tabularnewline
+Local-linear ABC & 15 & \textless{} -10 & \textless{} -10\tabularnewline
+Neural Network ABC & 12 & -0.120 & 0.556\tabularnewline
+Linear Regression & 8 & -0.248 & 0.479\tabularnewline
+GAM & 30 & -0.072 & 0.577\tabularnewline
+Quantile Random Forest & 3 & -0.187 & 0.547\tabularnewline
+Regression Random Forest & 20 & -0.117 & 0.571\tabularnewline
+\bottomrule
+\end{longtable}
+
+Table \ref{tab:failuretable} lists the number of identification failures: parameters for which at least another algorithm achieved predictivity of .1 but the algorithm in the table achieved predictivity below .05.
+Most parameters are either identified by all the algorithms or none of them.
+Local-linear regression struggled with the ``natural mean hierarchy'' simulation.
+Linear regression failed to estimate the \(b\) parameter from the Lotka-Volterra models, the \(\sigma\) parameter from the normal distribution and the \(A\) parameter from the ecological traits model.
+Random forests failed to identify \(\mu\) and \(\delta\) from the RBC macroeconomic model.
+
+\begin{longtable}[]{@{}lr@{}}
+\caption{\label{tab:failuretable}In this table we tabulate the number of identification failures for each algorithm which we define as estimation problems where at least one other algorithm had predictivity above .1 but this algorithm had predictivity below 0.05}\tabularnewline
+\toprule
+Algorithm & Identification Failures\tabularnewline
+\midrule
+\endfirsthead
+\toprule
+Algorithm & Identification Failures\tabularnewline
+\midrule
+\endhead
+Rejection ABC & 11\tabularnewline
+Semi-automatic ABC 4D & 1\tabularnewline
+Semi-automatic ABC 1D & 1\tabularnewline
+Local-linear ABC & 8\tabularnewline
+Neural Network ABC & 0\tabularnewline
+Linear Regression & 6\tabularnewline
+GAM & 0\tabularnewline
+Quantile Random Forest & 3\tabularnewline
+Regression Random Forest & 2\tabularnewline
+\bottomrule
+\end{longtable}
+
+Figure \ref{fig:crossvictories} compares algorithms pairwise with respect to their predictivity.
+Even the ``best'' algorithm, GAM, has lower predictivity for 30-40\% of the parameters against to neural network ABC, local-linear regression ABC and random forests.
+Linear regression of degree one wins about half of the comparisons against any ABC.
+
+\begin{figure}
+\centering
+\includegraphics{nofreelunch_files/figure-latex/crossvictories-1.pdf}
+\caption{\label{fig:crossvictories}Percentage of times algorithm 1 has higher predictivity than algorithm 2 for all estimations where at least one algorithm achieves .1 or more predictivity. A blue cell means that algorithm 1 performs generally better, a red cell means that algorithm 2 does.}
+\end{figure}
+
+It would be wrong however to infer that the choice of estimation algorithm is unimportant and one is better off spending their computational budget on running more simulations.
+To prove this we focus on all parameters that were estimated both with 1,250 and 5,000 training simulations. We run a linear mixed effect model where predictivity is the dependent variable and the parameter, the algorithm and the training data size are random effects.
+Table \ref{tab:bigvssmall} shows that the coefficient associated with training data size is smaller (in absolute terms) than those associated with most algorithms.
+Finding the best algorithm then is usually better than quadrupling the training data set.
+
+\begin{longtable}[]{@{}lrrr@{}}
+\caption{\label{tab:bigvssmall}Coefficients of running a linear mixed effects model regressing predictivity on algorithm used and size of the training sample (both fixed effects) with each estimation as a random intercept. Algorithm effects are with respect to linear regression.}\tabularnewline
+\toprule
+Term & Estimate & Std. Error & t\tabularnewline
+\midrule
+\endfirsthead
+\toprule
+Term & Estimate & Std. Error & t\tabularnewline
+\midrule
+\endhead
+Intercept & 0.462 & 0.051 & 8.986\tabularnewline
+Local-linear ABC & 0.043 & 0.023 & 1.874\tabularnewline
+GAM & 0.077 & 0.022 & 3.468\tabularnewline
+Neural Network ABC & 0.061 & 0.022 & 2.754\tabularnewline
+Rejection ABC & -0.082 & 0.022 & -3.714\tabularnewline
+Quantile Random Forest & 0.052 & 0.022 & 2.365\tabularnewline
+Regression Random Forest & 0.082 & 0.022 & 3.707\tabularnewline
+Semi-automatic ABC 1D & -0.003 & 0.024 & -0.128\tabularnewline
+Semi-automatic ABC 4D & 0.024 & 0.022 & 1.090\tabularnewline
+Small Training Size & -0.020 & 0.011 & -1.879\tabularnewline
+\bottomrule
+\end{longtable}
+
+The appendix contains a table with the predictivity for all parameters generated by each algorithm.
+
+\hypertarget{coverage}{%
+\subsection{Coverage}\label{coverage}}
+
+Results on the quality of confidence intervals are easier to interpret, as shown in table \ref{tab:coveragetable}.
+Using bootstrap prediction intervals as confidence intervals is superior to both using ABC and quantiles.
+In terms of coverage error, the absolute difference between 95\% and the proportion of parameters that out of sample are within the generated intervals, GAM is the most accurate 42\% of the time and have the lowest median error while linear regressions have the lowest mean coverage error.
+Regression adjusted ABC and quantile random forests make the largest coverage errors.
+
+\begin{longtable}[]{@{}lrrr@{}}
+\caption{\label{tab:coveragetable}Table showing for each algorithm median and average coverage error: the absolute difference between 95\% and the proportion of parameters actually falling within the algorithm's stated 95\% confidence interval (out of sample). The lower the error the more precise the algorithm. For each algorithm we also list the number of parameters for which the stated coverage was the most accurate out of sample compared to the other algorithms}\tabularnewline
+\toprule
+Algorithm & \# of times most accurate & Median Coverage Error & Mean Coverage Error\tabularnewline
+\midrule
+\endfirsthead
+\toprule
+Algorithm & \# of times most accurate & Median Coverage Error & Mean Coverage Error\tabularnewline
+\midrule
+\endhead
+Rejection ABC & 9 & 0.0124 & 0.0232\tabularnewline
+Semi-automatic ABC 4D & 6 & 0.0188 & 0.0188\tabularnewline
+Semi-automatic ABC 1D & 1 & 0.0152 & 0.0172\tabularnewline
+Local-linear ABC & 2 & 0.0244 & 0.0613\tabularnewline
+Neural Network ABC & 8 & 0.0364 & 0.1317\tabularnewline
+Linear Regression & 17 & 0.0064 & 0.0071\tabularnewline
+GAM & 46 & 0.0036 & 0.0137\tabularnewline
+Quantile Random Forest & 6 & 0.0324 & 0.0400\tabularnewline
+Regression Random Forest & 12 & 0.0110 & 0.0171\tabularnewline
+\bottomrule
+\end{longtable}
+
+\hypertarget{discussion}{%
+\section{Discussion}\label{discussion}}
+
+This paper provides two key results.
+First, if we are concerned primarily with the quality of point estimates, there is no substitute for trying multiple algorithms and rank them by cross-validation.
+GAM regressions do provide a good starting point.
+Second, bootstrap prediction intervals are the best method to generate confidence intervals around parameter estimates.
+
+The key advantage of reference table algorithms is that the same reference table can be used to train and test all algorithms at once.
+This is what makes cross-validation feasible since running simulations is usually the most expensive part of parameter estimation (accounting for 80\% of the computational time in the simple agent-based model of Grazzini and Richiardi \protect\hyperlink{ref-Grazzini2015}{2015}).
+Compare this with search based methods such as simulated minimum distance: to cross-validate we would need to search the parameter space from scratch for each row of the testing set.
+This is unfeasible for all but the simplest models.
+
+We know of no agent-based model that used cross-validation to choose how to estimate its parameters (with the exception of the comparison between ABC MCMC and simulated minimum distance in Grazzini, Richiardi, and Tsionas \protect\hyperlink{ref-Grazzini2017}{2017}).
+The common approach seems to be to pick one estimation method and apply it.
+We have proven here that this is suboptimal: no estimation method seems to be a priori better than the others.
+
+Papers proposing a new estimation algorithms tend to showcase their approach against one or two examples.
+It would help the literature to have a larger, standardized set of experiments to gauge any newcomer.
+We hope this paper and its code repository to be a first step.
+However it may be impossible to find an estimation algorithm that is always best and we should prioritize methods for which cross-validation can be done without having to run more simulations.
+
+The no free lunch theorem(Wolpert and Macready \protect\hyperlink{ref-Wolpert1995}{1995}) argues that when averaging over the universe of all search problems all optimization algorithms (including random search) perform equally.
+A supervised learning version of the same (Wolpert \protect\hyperlink{ref-Wolpert2011}{2011}) suggests that ``on average'' all learning algorithms and heuristics are equivalent.
+These are deeply theoretical results whose practical applications are limited: nobody has ever suggested abandoning cross-validation because of it, for example.
+However, some weak form of it seems to hold empirically when parametrizing: for each estimation algorithm there is a simulation parameter for which it does best.
+
+\hypertarget{appendix}{%
+\section*{Appendix}\label{appendix}}
+\addcontentsline{toc}{section}{Appendix}
+
+\hypertarget{full-predictivity-table}{%
+\subsection*{Full Predictivity Table}\label{full-predictivity-table}}
+\addcontentsline{toc}{subsection}{Full Predictivity Table}
+
+\begin{tabular}{l|l|l|l|l|l|l|l|l|l|l}
+\hline
+Experiment & Parameter & Rejection ABC & Semi-automatic ABC 4D & Semi-automatic ABC 1D & Local-linear ABC & Neural Network ABC & Linear Regression & GAM & Quantile Random Forest & Regression Random Forest\\
+\hline
+alpha-stable 5,000 & alpha & 0.425 & 0.591 & 0.608 & 0.705 & 0.745 & 0.476 & 0.522 & 0.551 & 0.561\\
+\hline
+alpha-stable 5,000 & mu & 0.633 & 0.727 & 0.727 & 0.993 & 0.989 & 0.993 & 0.993 & 0.992 & 0.993\\
+\hline
+alpha-stable 5,000 & sigma & 0.039 & 0.715 & 0.718 & 0.883 & 0.885 & 0.881 & 0.877 & 0.744 & 0.795\\
+\hline
+alpha-stable 1,250 & alpha & 0.414 & 0.559 & 0.602 & 0.686 & 0.705 & 0.469 & 0.439 & 0.499 & 0.516\\
+\hline
+alpha-stable 1,250 & mu & 0.656 & 0.718 & 0.705 & 0.993 & 0.983 & 0.994 & 0.993 & 0.990 & 0.993\\
+\hline
+alpha-stable 1,250 & sigma & 0.019 & 0.706 & 0.714 & 0.873 & 0.878 & 0.879 & 0.874 & 0.595 & 0.698\\
+\hline
+Birds ABM - 2 SS & scout.prob & 0.004 & 0.051 & 0.004 & NA & 0.067 & 0.000 & 0.059 & -0.024 & 0.013\\
+\hline
+Birds ABM - 2 SS & survival.prob & 0.851 & 0.776 & 0.842 & NA & 0.884 & 0.755 & 0.876 & 0.869 & 0.874\\
+\hline
+Birds ABM - 105 SS & scout.prob & 0.194 & 0.472 & 0.405 & NA & 0.348 & 0.382 & 0.501 & 0.577 & 0.587\\
+\hline
+Birds ABM - 105 SS & survival.prob & 0.731 & 0.791 & 0.757 & NA & 0.803 & 0.870 & 0.885 & 0.880 & 0.881\\
+\hline
+Broken Line 5,000 & b & 0.810 & 0.905 & NA & 0.906 & 0.902 & 0.907 & 0.909 & 0.905 & 0.907\\
+\hline
+Broken Line 1,250 & b & 0.810 & 0.899 & NA & 0.901 & 0.884 & 0.906 & 0.907 & 0.898 & 0.904\\
+\hline
+Coalescence & rho & 0.094 & 0.161 & 0.146 & 0.172 & 0.172 & 0.130 & 0.163 & 0.149 & 0.161\\
+\hline
+Coalescence & theta & 0.382 & 0.428 & 0.422 & 0.431 & 0.432 & 0.392 & 0.437 & 0.422 & 0.434\\
+\hline
+Earthworm & B\_0 & -0.021 & -0.019 & -0.019 & NA & -0.019 & 0.003 & 0.003 & -0.012 & 0.000\\
+\hline
+Earthworm & E & 0.216 & 0.254 & 0.261 & NA & 0.455 & 0.384 & 0.485 & 0.688 & 0.676\\
+\hline
+Earthworm & E\_c & 0.023 & 0.048 & 0.038 & NA & 0.038 & 0.039 & 0.058 & 0.057 & 0.060\\
+\hline
+Earthworm & E\_s & -0.002 & 0.000 & 0.000 & NA & -0.003 & 0.009 & 0.011 & -0.008 & 0.006\\
+\hline
+Earthworm & IGm & 0.196 & 0.327 & 0.334 & NA & 0.643 & 0.544 & 0.708 & 0.746 & 0.768\\
+\hline
+Earthworm & M\_b & 0.053 & 0.306 & 0.284 & NA & 0.648 & 0.934 & 0.947 & 0.932 & 0.872\\
+\hline
+Earthworm & M\_c & 0.051 & 0.112 & 0.101 & NA & 0.099 & 0.111 & 0.135 & 0.151 & 0.160\\
+\hline
+Earthworm & M\_m & 0.304 & 0.341 & 0.267 & NA & 0.581 & 0.867 & 0.900 & 0.940 & 0.951\\
+\hline
+Earthworm & M\_p & 0.117 & 0.268 & 0.118 & NA & 0.391 & 0.132 & 0.462 & 0.577 & 0.550\\
+\hline
+Earthworm & r\_B & 0.236 & 0.330 & 0.326 & NA & 0.603 & 0.695 & 0.888 & 0.870 & 0.862\\
+\hline
+Earthworm & r\_m & 0.026 & 0.118 & 0.100 & NA & 0.105 & 0.126 & 0.147 & 0.147 & 0.150\\
+\hline
+g-k distribution 5,000 & A & 0.322 & 0.634 & 0.574 & 0.932 & 0.695 & 0.928 & 0.929 & 0.925 & 0.928\\
+\hline
+g-k distribution 5,000 & B & 0.206 & 0.567 & 0.543 & 0.660 & 0.588 & 0.606 & 0.648 & 0.688 & 0.697\\
+\hline
+g-k distribution 5,000 & g & 0.045 & 0.401 & 0.404 & 0.381 & 0.417 & 0.305 & 0.356 & 0.335 & 0.388\\
+\hline
+g-k distribution 5,000 & k & 0.625 & 0.524 & 0.481 & 0.817 & 0.853 & 0.305 & 0.529 & 0.882 & 0.887\\
+\hline
+g-k distribution 1,250 & A & 0.334 & 0.589 & 0.563 & 0.762 & 0.651 & 0.927 & 0.882 & 0.915 & 0.924\\
+\hline
+g-k distribution 1,250 & B & 0.195 & 0.531 & 0.530 & 0.560 & 0.548 & 0.625 & 0.280 & 0.656 & 0.670\\
+\hline
+g-k distribution 1,250 & g & 0.052 & 0.356 & 0.398 & 0.323 & 0.327 & 0.326 & 0.280 & 0.266 & 0.327\\
+\hline
+g-k distribution 1,250 & k & 0.623 & 0.445 & 0.438 & 0.790 & 0.836 & 0.275 & 0.521 & 0.864 & 0.868\\
+\hline
+Hierarchical Normal Mean 1,250 & theta1 & 0.409 & 0.509 & 0.510 & < -10 & 0.626 & 0.695 & 0.693 & 0.679 & 0.687\\
+\hline
+Hierarchical Normal Mean 1,250 & theta2 & 0.380 & 0.421 & 0.436 & < -10 & 0.447 & 0.494 & 0.543 & 0.538 & 0.543\\
+\hline
+Hierarchical Normal Mean 5,000 & theta1 & 0.429 & 0.430 & 0.522 & < -10 & 0.536 & 0.699 & 0.703 & 0.683 & 0.696\\
+\hline
+Hierarchical Normal Mean 5,000 & theta2 & 0.383 & 0.317 & 0.414 & < -10 & 0.323 & 0.473 & 0.514 & 0.522 & 0.531\\
+\hline
+Lotke-Volterra Noisy & a & 0.576 & 0.785 & 0.769 & 0.900 & 0.926 & 0.634 & 0.841 & 0.933 & 0.934\\
+\hline
+Lotke-Volterra Noisy & b & 0.258 & 0.436 & 0.263 & 0.523 & 0.663 & -0.229 & 0.490 & 0.652 & 0.671\\
+\hline
+Lotke-Volterra Non-Noisy & a & 0.529 & 0.792 & 0.774 & < -10 & 0.969 & 0.592 & 0.922 & 0.992 & 0.993\\
+\hline
+Lotke-Volterra Non-Noisy & b & 0.231 & 0.464 & 0.336 & 0.854 & 0.971 & -0.058 & 0.557 & 0.965 & 0.969\\
+\hline
+Locally Identifiable 5,000 & theta1 & 0.199 & 0.207 & 0.202 & 0.209 & 0.205 & 0.211 & 0.232 & 0.147 & 0.201\\
+\hline
+Locally Identifiable 5,000 & theta2 & 0.203 & 0.150 & 0.199 & 0.200 & 0.197 & 0.210 & 0.224 & 0.146 & 0.191\\
+\hline
+Locally Identifiable 1,250 & theta1 & 0.184 & 0.191 & 0.186 & 0.190 & 0.165 & 0.194 & 0.215 & 0.103 & 0.171\\
+\hline
+Locally Identifiable 1,250 & theta2 & 0.209 & 0.176 & 0.200 & 0.212 & 0.184 & 0.212 & 0.231 & 0.142 & 0.208\\
+\hline
+Moving Average 5,000 & ma1 & 0.384 & 0.427 & 0.398 & 0.426 & 0.456 & 0.308 & 0.440 & 0.461 & 0.488\\
+\hline
+Moving Average 5,000 & ma2 & 0.385 & 0.635 & 0.494 & 0.610 & 0.664 & 0.232 & 0.659 & 0.668 & 0.678\\
+\hline
+Moving Average 1,250 & ma1 & 0.358 & 0.375 & 0.347 & 0.355 & 0.355 & 0.312 & 0.414 & 0.424 & 0.450\\
+\hline
+Moving Average 1,250 & ma2 & 0.373 & 0.613 & 0.458 & 0.584 & 0.605 & 0.232 & 0.654 & 0.642 & 0.664\\
+\hline
+Median and MAD 5,000 - 2 SS & mu & 0.754 & 0.747 & 0.753 & 0.775 & 0.773 & 0.761 & 0.773 & 0.757 & 0.763\\
+\hline
+Median and MAD 5,000 - 2 SS & sigma & 0.769 & 0.769 & 0.768 & 0.795 & 0.795 & 0.772 & 0.797 & 0.775 & 0.785\\
+\hline
+Median and MAD 1,250 - 2 SS & mu & 0.743 & 0.735 & 0.741 & 0.770 & 0.761 & 0.759 & 0.768 & 0.752 & 0.760\\
+\hline
+Median and MAD 1,250 - 2 SS & sigma & 0.768 & 0.760 & 0.759 & 0.796 & 0.791 & 0.772 & 0.800 & 0.775 & 0.785\\
+\hline
+Median and MAD 5,000 - 4 SS & mu & 0.648 & 0.744 & NA & 0.766 & 0.695 & 0.755 & 0.768 & 0.759 & 0.764\\
+\hline
+Median and MAD 5,000 - 4 SS & sigma & 0.657 & 0.769 & NA & 0.788 & 0.707 & 0.771 & 0.796 & 0.783 & 0.791\\
+\hline
+Median and MAD 1,250 - 5 SS & mu & 0.620 & 0.732 & NA & 0.762 & 0.680 & 0.754 & 0.765 & 0.753 & 0.765\\
+\hline
+Median and MAD 1,250 - 5 SS & sigma & 0.654 & 0.763 & NA & 0.786 & 0.705 & 0.777 & 0.799 & 0.783 & 0.799\\
+\hline
+mu-sigma & mu & 0.004 & 0.004 & 0.004 & 0.868 & 0.812 & 0.891 & 0.907 & 0.481 & 0.715\\
+\hline
+mu-sigma & sigma2 & 0.471 & 0.471 & 0.471 & 0.909 & 0.899 & 0.909 & 0.909 & 0.896 & 0.903\\
+\hline
+Normal 25 5,000 & mean & 0.605 & 0.603 & 0.590 & 0.541 & 0.581 & 0.600 & 0.608 & 0.566 & 0.552\\
+\hline
+Normal 25 5,000 & sd & -0.563 & 0.624 & 0.120 & -0.774 & 0.272 & -0.003 & 0.518 & 0.597 & 0.596\\
+\hline
+Normal 25 1,250 & mean & 0.629 & 0.572 & 0.591 & 0.375 & 0.600 & 0.621 & 0.603 & 0.564 & 0.545\\
+\hline
+Normal 25 1,250 & sd & -0.530 & 0.529 & 0.098 & -1.086 & 0.384 & -0.010 & 0.500 & 0.536 & 0.546\\
+\hline
+Scale 5,000 & weight1 & 0.297 & 0.295 & NA & 0.299 & 0.299 & 0.302 & 0.302 & 0.105 & 0.188\\
+\hline
+Scale 5,000 & weight2 & 0.300 & 0.298 & NA & 0.301 & 0.301 & 0.303 & 0.303 & 0.110 & 0.190\\
+\hline
+Scale 1,250 & weight1 & 0.260 & 0.257 & NA & 0.260 & 0.260 & 0.276 & 0.276 & 0.054 & 0.137\\
+\hline
+Scale 1,250 & weight2 & 0.268 & 0.263 & NA & 0.268 & 0.267 & 0.281 & 0.280 & 0.054 & 0.143\\
+\hline
+Unidentifiable 5,000 & mean & -0.003 & -0.007 & -0.005 & -0.009 & -0.022 & 0.000 & 0.000 & -0.100 & -0.039\\
+\hline
+Unidentifiable 5,000 & sd & -0.004 & -0.006 & -0.006 & -0.007 & -0.016 & 0.001 & 0.000 & -0.085 & -0.025\\
+\hline
+Unidentifiable 1,250 & mean & -0.021 & -0.036 & -0.025 & -0.038 & -0.072 & 0.000 & -0.002 & -0.135 & -0.041\\
+\hline
+Unidentifiable 1,250 & sd & -0.015 & -0.024 & -0.039 & -0.034 & -0.089 & -0.002 & -0.002 & -0.139 & -0.048\\
+\hline
+Partially Identifiable 5,000 & theta & 0.205 & 0.182 & 0.142 & 0.205 & 0.192 & 0.074 & 0.196 & 0.105 & 0.174\\
+\hline
+Partially Identifiable 1,250 & theta & 0.188 & 0.153 & 0.119 & 0.179 & 0.139 & 0.058 & 0.187 & 0.089 & 0.159\\
+\hline
+Real Business Cycle - 48 SS & beta & 0.467 & 0.602 & 0.574 & NA & 0.690 & 0.935 & 0.966 & 0.882 & 0.886\\
+\hline
+Real Business Cycle - 48 SS & delta & 0.009 & 0.490 & 0.200 & NA & 0.502 & 0.172 & 0.572 & 0.039 & 0.061\\
+\hline
+Real Business Cycle - 48 SS & eta & -0.002 & 0.551 & 0.456 & NA & 0.722 & 0.475 & 0.599 & 0.148 & 0.329\\
+\hline
+Real Business Cycle - 48 SS & mu & -0.001 & 0.537 & 0.559 & NA & 0.772 & 0.639 & 0.491 & 0.023 & 0.044\\
+\hline
+Real Business Cycle - 48 SS & phi & 0.385 & 0.580 & 0.576 & NA & 0.666 & 0.842 & 0.870 & 0.732 & 0.747\\
+\hline
+Real Business Cycle - 48 SS & sigma & 0.261 & 0.469 & 0.399 & NA & 0.463 & 0.412 & 0.577 & 0.492 & 0.504\\
+\hline
+Real Business Cycle - 44 SS & beta & 0.561 & 0.499 & 0.505 & 0.862 & 0.826 & 0.783 & 0.892 & 0.770 & 0.792\\
+\hline
+Real Business Cycle - 44 SS & delta & 0.001 & 0.327 & 0.275 & 0.260 & 0.359 & 0.244 & 0.278 & 0.001 & 0.039\\
+\hline
+Real Business Cycle - 44 SS & eta & -0.001 & 0.079 & 0.065 & -0.032 & 0.073 & 0.057 & 0.065 & -0.026 & -0.001\\
+\hline
+Real Business Cycle - 44 SS & mu & -0.004 & 0.007 & 0.001 & -0.108 & -0.015 & 0.000 & 0.001 & -0.043 & -0.008\\
+\hline
+Real Business Cycle - 44 SS & phi & 0.409 & 0.484 & 0.529 & 0.817 & 0.847 & 0.743 & 0.803 & 0.659 & 0.670\\
+\hline
+Real Business Cycle - 44 SS & sigma & -0.007 & -0.012 & -0.009 & -0.249 & -0.042 & -0.013 & -0.007 & -0.066 & -0.018\\
+\hline
+Pathogen & param\_1 & 0.265 & 0.378 & 0.362 & 0.394 & 0.303 & 0.346 & 0.414 & 0.400 & 0.413\\
+\hline
+Pathogen & param\_2 & 0.327 & 0.396 & 0.381 & 0.429 & 0.347 & 0.375 & 0.418 & 0.382 & 0.409\\
+\hline
+Pathogen & param\_3 & 0.235 & 0.317 & 0.297 & 0.353 & 0.256 & 0.268 & 0.341 & 0.310 & 0.336\\
+\hline
+Pathogen & param\_4 & 0.185 & 0.257 & 0.238 & 0.288 & 0.212 & 0.251 & 0.280 & 0.236 & 0.275\\
+\hline
+Toy Model 1,250 & a & 0.648 & 0.650 & 0.650 & 0.671 & 0.669 & 0.616 & 0.669 & 0.656 & 0.657\\
+\hline
+Toy Model 1,250 & b & 0.486 & 0.504 & 0.502 & 0.509 & 0.507 & 0.466 & 0.506 & 0.488 & 0.490\\
+\hline
+Toy Model 5,000 & a & 0.642 & 0.638 & 0.642 & 0.664 & 0.658 & 0.610 & 0.662 & 0.644 & 0.647\\
+\hline
+Toy Model 5,000 & b & 0.465 & 0.480 & 0.478 & 0.488 & 0.475 & 0.443 & 0.484 & 0.452 & 0.461\\
+\hline
+Ecological Traits 5,000 & A & 0.455 & 0.497 & 0.382 & 0.539 & 0.551 & 0.022 & 0.598 & 0.516 & 0.566\\
+\hline
+Ecological Traits 5,000 & h & 0.240 & 0.270 & 0.246 & 0.288 & 0.281 & 0.253 & 0.281 & 0.232 & 0.270\\
+\hline
+Ecological Traits 5,000 & I & 0.528 & 0.495 & 0.645 & 0.862 & 0.835 & 0.687 & 0.828 & 0.882 & 0.881\\
+\hline
+Ecological Traits 5,000 & sigma & -0.004 & -0.009 & -0.006 & -0.022 & -0.030 & -0.001 & -0.001 & -0.109 & -0.039\\
+\hline
+Ecological Traits 1,250 & A & 0.427 & 0.490 & 0.394 & -0.163 & 0.488 & 0.012 & 0.576 & 0.487 & 0.533\\
+\hline
+Ecological Traits 1,250 & h & 0.240 & 0.275 & 0.252 & 0.102 & 0.238 & 0.264 & 0.288 & 0.203 & 0.261\\
+\hline
+Ecological Traits 1,250 & I & 0.536 & 0.522 & 0.628 & 0.849 & 0.824 & 0.688 & 0.821 & 0.852 & 0.856\\
+\hline
+Ecological Traits 1,250 & sigma & -0.017 & -0.021 & -0.017 & -0.057 & -0.106 & -0.003 & -0.005 & -0.091 & -0.026\\
+\hline
+Wilkinson 5,000 & theta & 0.828 & 0.814 & NA & 0.885 & 0.884 & 0.569 & 0.810 & 0.860 & 0.873\\
+\hline
+Wilkinson 1,250 & theta & 0.829 & 0.814 & NA & 0.894 & 0.891 & 0.587 & 0.818 & 0.881 & 0.888\\
+\hline
+\end{tabular}
+
+\hypertarget{acknowledgments}{%
+\section*{Acknowledgments}\label{acknowledgments}}
+\addcontentsline{toc}{section}{Acknowledgments}
+
+This research is funded in part by the Oxford Martin School, the David and Lucile Packard Foundation, the Gordon and Betty Moore Foundation, the Walton Family Foundation, and Ocean Conservancy.
+
+\hypertarget{bibliography}{%
+\subsection*{Bibliography}\label{bibliography}}
+\addcontentsline{toc}{subsection}{Bibliography}
+
+\hypertarget{refs}{}
+\leavevmode\hypertarget{ref-Anderson1935}{}%
+Anderson. 1935. ``The Irises of the Gaspe Peninsula.'' \emph{Bulletin of the American Iris Society} 59.
+
+\leavevmode\hypertarget{ref-Beaumont2002}{}%
+Beaumont, Mark A, Wenyang Zhang, and David J Balding. 2002. ``Approximate Bayesian computation in population genetics.'' \emph{Genetics} 162 (4): 2025--35. \url{https://doi.org/Genetics\%20December\%201,\%202002\%20vol.\%20162\%20no.\%204\%202025-2035}.
+
+\leavevmode\hypertarget{ref-Blum2013}{}%
+Blum, M G B, M A Nunes, D Prangle, and S A Sisson. 2013. ``A comparative review of dimension reduction methods in approximate Bayesian computation.'' \emph{Statistical Science} 28 (2): 189--208. \url{https://doi.org/10.1214/12-STS406}.
+
+\leavevmode\hypertarget{ref-Blum2010}{}%
+Blum, Michael G B, and Olivier Francois. 2010. ``Non-linear regression models for Approximate Bayesian Computation.'' \emph{Statistics and Computing} 20 (1): 63--73. \url{https://doi.org/10.1007/s11222-009-9116-0}.
+
+\leavevmode\hypertarget{ref-Breiman2001}{}%
+Breiman, Leo. 2001. ``Random Forests.'' \emph{Machine Learning} 45 (1): 5--32. \url{https://doi.org/10.1023/A:1010933404324}.
+
+\leavevmode\hypertarget{ref-Canova2005}{}%
+Canova, Fabio, and Luca Sala. 2009. ``Back to square one: Identification issues in DSGE models.'' \emph{Journal of Monetary Economics} 56 (4): 431--49. \url{https://doi.org/10.1016/j.jmoneco.2009.03.014}.
+
+\leavevmode\hypertarget{ref-Carrella2018}{}%
+Carrella, Ernesto, Richard M. Bailey, and Jens Koed Madsen. 2018. ``Indirect inference through prediction,'' July. \url{http://arxiv.org/abs/1807.01579}.
+
+\leavevmode\hypertarget{ref-Creel2017}{}%
+Creel, Michael. 2017. ``Neural nets for indirect inference.'' \emph{Econometrics and Statistics} 2 (April): 36--49. \url{https://doi.org/10.1016/j.ecosta.2016.11.008}.
+
+\leavevmode\hypertarget{ref-Csillery2012}{}%
+Csilléry, Katalin, Olivier François, and Michael G. B. Blum. 2012. ``Abc: An R package for approximate Bayesian computation (ABC).'' \emph{Methods in Ecology and Evolution} 3 (3): 475--79. \url{https://doi.org/10.1111/j.2041-210X.2011.00179.x}.
+
+\leavevmode\hypertarget{ref-Davison}{}%
+Davison, A. C. (Anthony Christopher), and D. V. Hinkley. 1997. \emph{Bootstrap methods and their application}. Cambridge, United Kingdom: Cambridge University Press.
+
+\leavevmode\hypertarget{ref-fasiolo2014introduction}{}%
+Fasiolo, M, and S Wood. 2014. ``An introduction to synlik (2014).'' \emph{R Package Version 0.1. 0}.
+
+\leavevmode\hypertarget{ref-Fernandez-Villaverde2015}{}%
+Fernández-Villaverde, Jesús, Juan F Rubio Ramírez, and Frank Schorfheide. 2016. ``Solution and Estimation Methods for DSGE Models.'' In \emph{Handbook of Macroeconomics}, 2:527-----724. \url{https://doi.org/10.1016/bs.hesmac.2016.03.006}.
+
+\leavevmode\hypertarget{ref-Francis2009}{}%
+Francis, Andrew R, Scott A Sisson, Honglin Jiang, Fabio Luciani, and Mark M Tanaka. 2009. ``The epidemiological fitness cost of drug resistance in Mycobacterium tuberculosis.'' \emph{Proceedings of the National Academy of Sciences} 106 (34): 14711--5. \url{https://doi.org/10.1073/pnas.0902437106}.
+
+\leavevmode\hypertarget{ref-Grazzini2015}{}%
+Grazzini, Jakob, and Matteo Richiardi. 2015. ``Estimation of ergodic agent-based models by simulated minimum distance.'' \emph{Journal of Economic Dynamics and Control} 51 (February): 148--65. \url{https://doi.org/10.1016/j.jedc.2014.10.006}.
+
+\leavevmode\hypertarget{ref-Grazzini2017}{}%
+Grazzini, Jakob, Matteo G. Richiardi, and Mike Tsionas. 2017. ``Bayesian estimation of agent-based models.'' \emph{Journal of Economic Dynamics and Control} 77 (April): 26--47. \url{https://doi.org/10.1016/j.jedc.2017.01.014}.
+
+\leavevmode\hypertarget{ref-hartig_statistical_2011}{}%
+Hartig, F., J.M. Calabrese, B. Reineking, T. Wiegand, and A. Huth. 2011. ``Statistical inference for stochastic simulation models - theory and application.'' \emph{Ecology Letters} 14 (8): 816--27. \url{https://doi.org/10.1111/j.1461-0248.2011.01640.x}.
+
+\leavevmode\hypertarget{ref-Hastie1986}{}%
+Hastie, Trevor, and Robert Tibshirani. 1986. ``Generalized Additive Models.'' \emph{Statistical Science} 1 (3): 297--318. \url{http://web.stanford.edu/\%7B~\%7Dhastie/Papers/gam.pdf}.
+
+\leavevmode\hypertarget{ref-friedman_elements_2001}{}%
+Hastie, Trevor, Robert Tibshirani, and Jerome Friedman. 2009. \emph{The Elements of Statistical Learning}. 1st ed. Vol. 1. Berlin: Springer series in statistics Springer, Berlin. \url{https://doi.org/10.1007/b94608}.
+
+\leavevmode\hypertarget{ref-Jabot2010}{}%
+Jabot, Franck. 2010. ``A stochastic dispersal-limited trait-based model of community dynamics.'' \emph{Journal of Theoretical Biology} 262 (4): 650--61. \url{https://doi.org/10.1016/j.jtbi.2009.11.004}.
+
+\leavevmode\hypertarget{ref-Jabot2013}{}%
+Jabot, Franck, Thierry Faure, and Nicolas Dumoulin. 2013. ``EasyABC: Performing efficient approximate Bayesian computation sampling schemes using R.'' Edited by Robert B. O'Hara. \emph{Methods in Ecology and Evolution} 4 (7): 684--87. \url{https://doi.org/10.1111/2041-210X.12050}.
+
+\leavevmode\hypertarget{ref-Karabatsos2017}{}%
+Karabatsos, George, and Fabrizio Leisen. 2017. ``An Approximate Likelihood Perspective on ABC Methods.'' \emph{Statistics Surveys} 12 (0): 66--104. \url{https://doi.org/10.1214/18-SS120}.
+
+\leavevmode\hypertarget{ref-Klima2018}{}%
+Klima, Grzegorz, Karol Podemski, and Kaja Retkiewicz-Wijtiwiak. 2018. ``gEcon: General Equilibrium Economic Modelling Language and Solution Framework.''
+
+\leavevmode\hypertarget{ref-Kuhn2008}{}%
+Kuhn, Max. 2008. ``Building Predictive Models in R Using the caret Package.'' \emph{Journal of Statistical Software} 28 (5): 1-----26. \url{https://doi.org/10.18637/jss.v028.i05}.
+
+\leavevmode\hypertarget{ref-Meinshausen2006}{}%
+Meinshausen, Nicolai. 2006. ``Quantile Regression Forests.'' Vol. 7. \url{http://www.jmlr.org/papers/volume7/meinshausen06a/meinshausen06a.pdf}.
+
+\leavevmode\hypertarget{ref-Meinshausen2017}{}%
+---------. 2017. ``quantregForest: Quantile Regression Forests.'' \url{https://cran.r-project.org/package=quantregForest}.
+
+\leavevmode\hypertarget{ref-Nunes2015}{}%
+Nunes, Matthew A, and Dennis Prangle. 2015. ``abctools: An R Package for Tuning Approximate Bayesian Computation Analyses.'' \emph{The R Journal} 7 (2): 189-----205. \url{https://journal.r-project.org/archive/2015/RJ-2015-030/RJ-2015-030.pdf}.
+
+\leavevmode\hypertarget{ref-Prangle2017}{}%
+Prangle, Dennis. 2017. ``gk: An R Package for the g-and-k and generalised g-and-h Distributions,'' June. \url{http://arxiv.org/abs/1706.06889}.
+
+\leavevmode\hypertarget{ref-Prangle2014}{}%
+Prangle, Dennis, Paul Fearnhead, Murray P. Cox, Patrick J. Biggs, and Nigel P. French. 2014. ``Semi-automatic selection of summary statistics for ABC model choice.'' \emph{Statistical Applications in Genetics and Molecular Biology} 13 (1): 67--82. \url{https://doi.org/10.1515/sagmb-2013-0012}.
+
+\leavevmode\hypertarget{ref-Pritchard1999}{}%
+Pritchard, Jonathan K., Mark T. Seielstad, Anna Perez-Lezaun, and Marcus W. Feldman. 1999. ``Population growth of human Y chromosomes: A study of y chromosome microsatellites.'' \emph{Molecular Biology and Evolution} 16 (12): 1791--8. \url{https://doi.org/10.1093/oxfordjournals.molbev.a026091}.
+
+\leavevmode\hypertarget{ref-Railsback2011}{}%
+Railsback, Steven F, and Volker Grimm. 2012. \emph{Agent-based and individual-based modeling: a practical introduction}. Princeton University Press. \url{https://books.google.co.uk/books?hl=en\%7B/\&\%7Dlr=\%7B/\&\%7Did=tSI2DkMtoWQC\%7B/\&\%7Doi=fnd\%7B/\&\%7Dpg=PP1\%7B/\&\%7Ddq=Agent-Based+and+Individual-Based+Modeling:+A+Practical+Introduction\%7B/\&\%7Dots=dR3Y0A9NQL\%7B/\&\%7Dsig=aHHw34ZN0K4pnP1zzJ20XBOJ26s\%7B/\&\%7Dredir\%7B/_\%7Desc=y\%7B/\#\%7Dv=onepage\%7B/\&\%7Dq=Agent-Based\%20and\%20Individual-Based\%20Modelin}.
+
+\leavevmode\hypertarget{ref-MarixnArxiv}{}%
+Raynal, Louis, Jean-Michel Marin, Pierre Pudlo, Mathieu Ribatet, Christian P Robert, and Arnaud Estoup. 2018. ``ABC random forests for Bayesian parameter inference.'' \url{https://doi.org/10.24072/pci.evolbiol.100036}.
+
+\leavevmode\hypertarget{ref-Rubio2013}{}%
+Rubio, F. J., and Adam M. Johansen. 2013. ``A simple approach to maximum intractable likelihood estimation.'' \emph{Electronic Journal of Statistics} 7 (1): 1632--54. \url{https://doi.org/10.1214/13-EJS819}.
+
+\leavevmode\hypertarget{ref-Salle2014}{}%
+Salle, Isabelle, and Murat Yıldızoğlu. 2014. ``Efficient sampling and meta-modeling for computational economic models.'' \emph{Computational Economics} 44 (4): 507--36. \url{https://doi.org/10.1007/s10614-013-9406-7}.
+
+\leavevmode\hypertarget{ref-Snoek2012}{}%
+Snoek, Jasper, Hugo Larochelle, and Ryan P Adams. 2012. ``Practical bayesian optimization of machine learning algorithms.'' In \emph{Advances in Neural Information Processing Systems}, 1--12. \url{http://arxiv.org/abs/1206.2944}.
+
+\leavevmode\hypertarget{ref-Stow2009}{}%
+Stow, Craig A., Jason Jolliff, Dennis J. McGillicuddy, Scott C. Doney, J. Icarus Allen, Marjorie A.M. Friedrichs, Kenneth A. Rose, and Philip Wallhead. 2009. ``Skill assessment for coupled biological/physical models of marine systems.'' \emph{Journal of Marine Systems} 76 (1-2): 4--15. \url{https://doi.org/10.1016/j.jmarsys.2008.03.011}.
+
+\leavevmode\hypertarget{ref-Thiele2014}{}%
+Thiele, Jan C., Winfried Kurth, and Volker Grimm. 2014. ``Facilitating parameter estimation and sensitivity analysis of agent-based models: A cookbook using NetLogo and R.'' \emph{Journal of Artificial Societies and Social Simulation} 17 (3): 11. \url{https://doi.org/10.18564/jasss.2503}.
+
+\leavevmode\hypertarget{ref-Toni2009}{}%
+Toni, Tina, David Welch, Natalja Strelkowa, Andreas Ipsen, and Michael P.H Stumpf. 2009. ``Approximate Bayesian computation scheme for parameter inference and model selection in dynamical systems.'' \emph{Journal of the Royal Society Interface} 6 (31): 187--202. \url{https://doi.org/10.1098/rsif.2008.0172}.
+
+\leavevmode\hypertarget{ref-VanderVaart2015}{}%
+Vaart, Elske van der, Mark A. Beaumont, Alice S A Johnston, and Richard M. Sibly. 2015. ``Calibration and evaluation of individual-based models using Approximate Bayesian Computation.'' \emph{Ecological Modelling} 312: 182--90. \url{https://doi.org/10.1016/j.ecolmodel.2015.05.020}.
+
+\leavevmode\hypertarget{ref-Wager2014}{}%
+Wager, Stefan, Trevor Hastie, and Bradley Efron. 2014. ``Confidence Intervals for Random Forests: The Jackknife and the Infinitesimal Jackknife.'' Vol. 15. \url{http://jmlr.org/papers/volume15/wager14a/wager14a.pdf}.
+
+\leavevmode\hypertarget{ref-Wasserman2006}{}%
+Wasserman, Larry. 2006. \emph{All of nonparametric statistics}. Springer. \url{https://books.google.co.uk/books?hl=en\%7B/\&\%7Dlr=\%7B/\&\%7Did=MRFlzQfRg7UC\%7B/\&\%7Doi=fnd\%7B/\&\%7Dpg=PA2\%7B/\&\%7Ddq=All+of+Nonparametric+Statistics\%7B/\&\%7Dots=SPQStc52Hx\%7B/\&\%7Dsig=zUCTsE2QUPlGrvkyV2QZxKnQxGU\%7B/\&\%7Dredir\%7B/_\%7Desc=y\%7B/\#\%7Dv=onepage\%7B/\&\%7Dq=All\%20of\%20Nonparametric\%20Statistics\%7B/\&\%7Df=false}.
+
+\leavevmode\hypertarget{ref-wilkinsonnips}{}%
+Wilkinson, Richard. 2013. ``Approximate Bayesian Computation (ABC) NIPS Tutorial.'' \url{http://media.nips.cc/Conferences/2013/Video/Tutorial2B.pdf}.
+
+\leavevmode\hypertarget{ref-Wolpert2011}{}%
+Wolpert, David H. 2011. ``The Supervised Learning No-Free-Lunch Theorems.'' In \emph{Soft Computing and Industry}, 25--42. \url{https://doi.org/10.1007/978-1-4471-0123-9_3}.
+
+\leavevmode\hypertarget{ref-Wolpert1995}{}%
+Wolpert, David H., and William G. Macready. 1995. ``No free lunch theorems for search.'' Santa Fe Institute. \url{https://doi.org/10.1145/1389095.1389254}.
+
+\leavevmode\hypertarget{ref-Wood2010}{}%
+Wood, Simon N. 2010. ``Statistical inference for noisy nonlinear ecological dynamic systems.'' \emph{Nature} 466 (7310): 1102--4. \url{https://doi.org/10.1038/nature09319}.
+
+\leavevmode\hypertarget{ref-Wood2004}{}%
+Wood, Simon N. 2004. ``Stable and Efficient Multiple Smoothing Parameter Estimation for Generalized Additive Models.'' \emph{Journal of the American Statistical Association} 99 (467): 673--86. \url{http://www.jstor.org/stable/27590439\%7B/\%\%7D5Cnhttp://www.jstor.org.proxy.lib.duke.edu/stable/pdfplus/27590439.pdf?acceptTC=true}.
+
+\leavevmode\hypertarget{ref-Wood2017}{}%
+---------. 2017. \emph{Generalized Additive Models: An Introduction with R}. 2nd ed. New York, New York, USA: Chapman; Hall/CRC.
+
+\leavevmode\hypertarget{ref-Wood2002}{}%
+Wood, Simon N., and Nicole H. Augustin. 2002. ``GAMs with integrated model selection using penalized regression splines and applications to environmental modelling.'' \emph{Ecological Modelling} 157 (2-3): 157--77. \url{https://doi.org/10.1016/S0304-3800(02)00193-X}.
+
+\leavevmode\hypertarget{ref-Wright2015}{}%
+Wright, Marvin N., and Andreas Ziegler. 2015. ``ranger: A Fast Implementation of Random Forests for High Dimensional Data in C++ and R.'' \emph{Journal of Statistical Software} 77 (1). \url{https://doi.org/10.18637/jss.v077.i01}.
+
+
+\end{document}
