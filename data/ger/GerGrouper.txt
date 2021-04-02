@@ -1,0 +1,78 @@
+Note: This is a copy of the model's Info tab.
+
+##HOW TO CITE THIS MODEL
+
+Clark, Julia K., Stefani A. Crabtree. 2015. “Examining Social Adaptations in a Volatile Landscape in Northern Mongolia Via the Agent-Based Model Ger Grouper.” Land 2015, 4(1), 157-181; doi:10.3390/land4010157.
+
+##ACCESSING THE PUBLICATION
+
+http://www.mdpi.com/2073-445X/4/1/157
+
+## WHAT IS IT?
+
+This model was designed to explore fission/fusion dynamics among semi-nomadic pastoralists in Mongolia. Anecdotal information states that Mongolians cluster into groups of 4 to 6 nuclear families during wintertime. However, this has never been truly tested. This model makes an attempt at understanding what a very basic distribution of households would be on a patchy environment when these households are trying to maximize their own fitness.
+
+## ENTITIES, STATE VARIABLES AND SCALES
+
+This model has three kinds of entities: gers, green patches and brown patches.
+
+Gers: in Mongolia, gers are the yurt-like housing unit ubiquitous across the country (Honeychurch and Amartuvshin 2010). In this model agents are represented by gers, each ger representing one household.
+
+Green patches: These are "productive" during autumn. When an agent lands on one they gain one resource.
+
+Brown patches: These are "unproductive" during autumn. When an agent lands on one they lose one resource.
+
+The landscape consists of 40 x 40 patches. In reality a ger's footprint could be up to a few kilometers (because of the animals they posess). Here, we assume one "cell" will be enough to sustain a ger and it does not represent real space.
+
+## PROCESS OVERVIEW AND SCHEDULING
+
+The ony process in the model is the movement of the gers. However, this movement happens in two seasons: spring and autumn. During each of these seasons each ger moves once. The order of execution of movement does not matter since there is no interaction among the gers.
+
+## DESIGN CONCEPTS
+
+The basic principle addressed by Ger Grouper is the concept of locational decision making. This concept, and how it relates to potential emergence of fission/fusion dynamics, is explored in this model.
+
+Gers do not have perfect world knowledge, but use sensing to determine the productivity of the patch they are on relative to patches around them. In the spring gers choose a random direction and move 10 cells. In the autumn gers choose a random direction and move 10 cells as well. However, in the autumn gers "ask" the patch they land on if it is brown or green. If the patch is brown agents query the nearby patches and move to a green patch. If there is no green patch they stay on the brown patch and deduct one resource. If a ger gets below 0 resources they die.
+
+While we do not think that such a myopic view is realistic, the behavior modeled here approximates what a purely optimal behavior might be.
+
+The current implementation does not include interaction among the agents; however, in future implementation the ability to learn from other gers may be included.
+
+Stochasticity is only used with the random generation of productive patches on the landscape and with the random number generator for ger movement.
+
+## INITIALIZATION
+
+The patches are intialized when the model starts. The creation of these patches follows the "patch clusters" code example that comes with Netlogo (with slight modifications).
+
+Gers are also initialized on the landscape once the patches are set (see "sliders and buttons" below).
+
+## EXTENDING THE MODEL
+
+In future versions of the model Gers will be able to "remember" good patches and return to them with a cost to their fitness. Gers might also be able to learn from other gers where good patches are.
+
+Additionally, in future versions of the model there will be random bad winters whose productivity will decrease the productivity of patches. This will mimic "zuds" or bad winter storms in Mongolia. During zuds, which are unpredictable storms that usually happen on a decadal basis, normal wintering grounds are untenable and households have to find more productive areas.
+
+## SLIDERS AND BUTTONS
+
+Z--this relates to the productivity of the land. In this study I kept Z at a constant 2 (fairly patchy). If you wish to move this slider 1 makes the landscape all green, and 5 makes the landscape all brown (most of the time).
+
+Seed--this is the random number seed in the model. In behavior space I chose 5 random numbers by using a random number generator, but any seed can be chosen between 1 and 1000.
+
+N--this is the number of gers on the landscape. User can specify between 0 and 40 in increments of 10.
+
+## OUTPUTS
+
+Ger grouper writes a text file that has the x, y information for each ger in the final time-step. Because we aren't interested in time dependent processes the final time-step is fine for collection. The data is then fed into R code to analyze the Index of Dispersion statistic to test for clustering or regularity.
+## CREDITS AND REFERENCES
+
+Hanks, Bryan
+2010	Archaeology of the Eurasian Steppes and Mongolia. Annual Review of Anthropology, 29:469-486.
+
+Honeychurch, William and Ch. Amartuvshin
+2007	Hinterlands, Urban Centers, and Mobile Settings: The “New” Old World Archaeology from the Eurasian Steppe. Asian Perspectives 46(1):36-64.
+
+Houle, Jean-Luc
+2009	Socially Integrative Facilities’ and the Emergence of Societal Complexity on the Mongolian Steppe. In Monuments, Metals and Mobility: Trajectories of Complexity in the Late Prehistory of the Eurasian Steppe, edited by Bryan K. Hanks and K. M. Linduff. Cambridge University Press.
+
+Rogers, J. Daniel et al.
+2012	Modeling scale and variability in human-environmental interactions in Inner Asia. Ecological Modelling 241:5-14.

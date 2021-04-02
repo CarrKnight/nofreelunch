@@ -1,0 +1,1612 @@
+---
+title: "No free lunch when estimating simulation parameters"
+date: "`r Sys.Date()`"
+abstract: "We estimate the parameters of 41 simulation models to find which of 9 estimation algorithms performs better. Unfortunately no single algorithm is the best at estimation for all or even most the models. Five main results emerge instead from this research.  First, each algorithm is the best estimator for at least one parameter. Second,  the best estimation algorithm varies not just between models but even between parameters of the same model.  Third, each estimation algorithm fails to estimate at least one identifiable parameter. Fourth, choosing the right algorithm improves estimation performance more than quadrupling the number of simulation runs. Fifth, half of the agent-based models tested cannot be fully identified. We argue therefore that the testing performed here should be done in other applied work and to facilitate this we share the R package `freelunch`."
+author:
+- name: Anonymous
+header-includes:
+ - \usepackage{algorithmic}
+ - \usepackage{algorithm}
+output: 
+  # bookdown::pdf_document2:
+  #   toc: false
+  #   number_sections: true
+  #   keep_tex: true
+  #   keep_md: true
+  # bookdown::word_document2:
+  #   number_sections: true
+  #   fig_caption: true
+  bookdown::html_document2:
+      toc: false
+      toc_depth: 3
+      theme: "readable"
+      highlight: haddock
+      number_sections: true
+      self_contained: true
+bibliography: ["library.bib"]
+biblio-style: "apalike"
+link-citations: true
+urlcolor: blue
+editor_options: 
+  chunk_output_type: console
+---  
+
+# Keywords {-}
+
+Agent-based models;
+Individual-based models;
+Estimation;
+Calibration;
+Approximate Bayesian Computation;
+Random Forest;
+Generalized Additive Model;
+Bootstrap;
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning= FALSE, message=FALSE,
+                      cache=TRUE,
+                      dpi = 300, fig.width = 13.3, fig.height = 10)
+library(lme4) #lmer fit at the end
+library(tidyverse)
+library(here)
+
+
+path<-"./"
+
+methods_used<- c("Rejection ABC"="rejection",
+                 "Semi-automatic ABC 4D"="sabc_4d",
+                 "Semi-automatic ABC 1D"="sabc_1d",
+                 "Local-linear ABC" = "loclin",
+                 "Neural Network ABC" = "neuralnet",
+                 "Linear Regression" = "lm",
+                 "GAM"="loess",
+                 "Quantile Random Forest"="rf",
+                 "Regression Random Forest"="rfboot",
+                 "Average"="average")
+
+`%notin%` <- Negate(`%in%`)
+
+
+experiments_list<-
+  c("alfastronk_medium",
+    "alfastronk_small",
+    "anasazi_small", "anasazi", ### ADDED
+    "bam_small", "bam", ### ADDED https://www.comses.net/codebases/9dacc220-8d7f-4038-b618-92bb9b1333f0/releases/1.1.0/
+    "bandwagon_small", "bandwagon", ### ADDED  https://www.comses.net/codebases/4716/releases/1.0.0/
+    "birds_simple",
+    "birds",
+    "brokenliner_medium",
+    "brokenliner_small",
+    "coal_quick",
+    "commons_small", "commons", ### ADDED  https://www.comses.net/codebases/0f95455b-744d-4eb2-be9a-0074662799a3/releases/1.0.0/
+    "covidmask_small", "covidmask", ### ADDED  https://www.comses.net/codebases/ef690263-d2fb-4ac0-8f0b-71d8ee86186f/releases/1.0.0/
+    "earthwormjim",
+    "ebola_small", "ebola", ### ADDED https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7121695/
+    "fishmob_small", "fishmob", ### ADDDED https://www.comses.net/codebases/8f3d00ad-ca0b-44b2-a591-5ef4d24d8296/releases/1.0.0/
+    "ger_small", "ger", ### ADDDED http://www.mdpi.com/2073-445X/4/1/157
+    "gk_medium",
+    "gk_small",
+    "hierarchy_medium",
+    "hierarchy_small",
+    "hr_small", "hr", #### ADDED https://www.comses.net/codebase-release/7029c19d-669f-4f5d-ad68-f06d65c76759/
+    "insulation_small","insulation", ### ADDED https://www.comses.net/codebases/4419/releases/1.4.0/
+    "lk_noisy",
+    "lk_nonoise_quick",
+    "local_medium",
+    "local_small",
+    "ma_medium",
+    "ma_small",
+    "medmad_medium",
+    "medmad_small",
+    "medmadgarbage_medium",
+    "medmadgarbage_small",
+    "mlevel_small","mlevel" ,  ### https://www.comses.net/codebases/d2011a12-f791-45aa-9f22-6a535dac3310/releases/1.6.1/
+    "musigma2",
+    "neighbor_small","neighbor", ### ADDED https://www.comses.net/codebases/e0f12da8-a9d0-48a1-9446-30275482a8b4/releases/1.0.0/
+    "normal25_medium",
+    "normal25_small",
+    "overfat_medium",
+    "overfat_small",
+    "overfit_medium",
+    "overfit_small",
+    "partial_medium",
+    "partial_small",
+    "peerreview_small","peerreview", ### ADDED https://www.comses.net/codebases/6b77a08b-7e60-4f47-9ebb-6a8a2e87f486/releases/1.0.0/
+    "personalities_small","personalities", ### ADDED https://www.comses.net/codebases/df924b19-586d-4256-ba89-7fa59034720f/releases/1.0.0/
+    "rbc_full",
+    "rbc",
+    "risknet_small","risknet", ### ADDED https://www.comses.net/codebases/0f779ef3-5c89-4fe0-be7f-2757f9789028/releases/1.0.0/
+    "standingovation_small","standingovation", ### ADDED https://luis-r-izquierdo.github.io/standingovation/
+    "shelling_small","shelling", ### ADDED https://www.comses.net/codebases/7c562b23-4964-4d28-862c-1c8b254fd6ad/releases/1.0.0/
+    "sugarscape_small","sugarscape", ### ADDED https://www.comses.net/codebases/6f72dfc9-e8c5-4d9c-b925-7338059573c3/releases/1.1.0/
+    "supplychain_small","supplychain", ### ADDED https://www.comses.net/codebases/05f6bc80-f79e-4850-9066-ffd914395aa4/releases/1.0.0/
+    "steel_quick",
+    "toymodel_medium",
+    "toymodel_small",
+    "traits_medium",
+    "traits_small",
+    "wilkinson_medium",
+    "wilkinson_small",
+    "wolfsheep_small","wolfsheep" ### ADDED https://ccl.northwestern.edu/netlogo/models/WolfSheepPredation
+  )
+
+experiment_label<-
+  c("alpha-stable 5,000",
+    "alpha-stable 1,250",
+    "Anasazi ABM 1,250", "Anasazi ABM 5,000", ## ADDED
+    "Bottom-up Adaptive Macroeconomics ABM 1,250", "Bottom-up Adaptive Macroeconomics ABM 5,000", ## ADDED
+    "Intra-Organizational Bandwagon ABM 1,250", "Intra-Organizational Bandwagon ABM 5,000", ### ADDED 
+    "Birds ABM - 2 SS",
+    "Birds ABM - 105 SS",
+    "Broken Line 5,000",
+    "Broken Line 1,250",
+    "Coalescence",
+    "Governing the Commons ABM 1,250", "Governing the commons ABM 5,000", ### ADDED  https://www.comses.net/codebases/0f95455b-744d-4eb2-be9a-0074662799a3/releases/1.0.0/
+    "COVID-19 US Masks ABM 1,250", "COVID-19 US Masks ABM 5,000", ### ADDED  https://www.comses.net/codebases/ef690263-d2fb-4ac0-8f0b-71d8ee86186f/releases/1.0.0/
+    "Earthworm",
+    "Ebola Policy ABM 1,250", "Ebola Policy ABM 5,000", ### ADDED https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7121695/
+    "FishMob ABM 1,250", "FishMob ABM 5,000", ### ADDDED https://www.comses.net/codebases/8f3d00ad-ca0b-44b2-a591-5ef4d24d8296/releases/1.0.0/
+    "Ger Grouper ABM 1,250", "Ger Grouper ABM 5,000", ### ADDDED http://www.mdpi.com/2073-445X/4/1/157
+    "g-k distribution 5,000",
+    "g-k distribution 1,250",
+    "Hierarchical Normal Mean 1,250",
+    "Hierarchical Normal Mean 5,000",
+    "Two-factor Theory ABM 1,250", "Two-factor Theory ABM 5,000", #### ADDED https://www.comses.net/codebase-release/7029c19d-669f-4f5d-ad68-f06d65c76759/
+    "Insulation Activity ABM 1,250","Insulation Activity ABM 5,000", ### ADDED https://www.comses.net/codebases/4419/releases/1.4.0/
+    "Lotka-Volterra Noisy",
+    "Lotka-Volterra Non-Noisy",
+    "Locally Identifiable 5,000",
+    "Locally Identifiable 1,250",
+    "Moving Average 5,000",
+    "Moving Average 1,250",
+    "Median and MAD 5,000 - 2 SS",
+    "Median and MAD 1,250 - 2 SS",
+    "Median and MAD 5,000 - 4 SS",
+    "Median and MAD 1,250 - 5 SS",
+    "Multilevel Selection ABM 1,250","Multilevel Selection ABM 5,000" ,  ### https://www.comses.net/codebases/d2011a12-f791-45aa-9f22-6a535dac3310/releases/1.6.1/
+    "mu-sigma",
+    "NIER ABM 1,250","NIER ABM 5,000", ### ADDED https://www.comses.net/codebases/e0f12da8-a9d0-48a1-9446-30275482a8b4/releases/1.0.0/
+    "Normal 25 5,000",
+    "Normal 25 1,250",
+    "Scale 5,000",
+    "Scale 1,250",
+    "Unidentifiable 5,000",
+    "Unidentifiable 1,250",
+    "Partially Identifiable 5,000",
+    "Partially Identifiable 1,250",
+    "Peer Review Game ABM 1,250","Peer Review Game ABM 5,000", ### ADDED https://www.comses.net/codebases/6b77a08b-7e60-4f47-9ebb-6a8a2e87f486/releases/1.0.0/
+    "OfficeMoves ABM 1,250","OfficeMoves ABM 5,000", ### ADDED https://www.comses.net/codebases/df924b19-586d-4256-ba89-7fa59034720f/releases/1.0.0/
+    "Real Business Cycle - 48 SS",
+    "Real Business Cycle - 44 SS",
+    "RiskNetABM 1,250","RiskNetABM 5,000", ### ADDED https://www.comses.net/codebases/0f779ef3-5c89-4fe0-be7f-2757f9789028/releases/1.0.0/
+    "Standing Ovation ABM 1,250","Standing Ovation ABM 5,000", ### ADDED https://luis-r-izquierdo.github.io/standingovation/
+    "Schelling-Sakoda Extended ABM 1,250","Schelling-Sakoda Extended ABM 5,000", ### ADDED https://www.comses.net/codebases/7c562b23-4964-4d28-862c-1c8b254fd6ad/releases/1.0.0/
+    "Sugarscape ABM 1,250","Sugarscape ABM 5,000", ### ADDED https://www.comses.net/codebases/6f72dfc9-e8c5-4d9c-b925-7338059573c3/releases/1.1.0/
+    "Food Supply Chain ABM 1,250","Food Supply Chain ABM 5,000", ### ADDED https://www.comses.net/codebases/05f6bc80-f79e-4850-9066-ffd914395aa4/releases/1.0.0/
+    "Pathogen",
+    "Toy Model 1,250",
+    "Toy Model 5,000",
+    "Ecological Traits 5,000",
+    "Ecological Traits 1,250",
+    "Wilkinson 5,000",
+    "Wilkinson 1,250",
+    "Wolf Sheep Predation ABM 1,250","Wolf Sheep Predation ABM 5,000" ### ADDED https://ccl.northwestern.edu/netlogo/models/WolfSheepPredation
+    
+  )
+
+
+ABM_sublist<-c(
+  
+  "anasazi_small", "anasazi", ### ADDED
+  "bam_small", "bam", ### ADDED https://www.comses.net/codebases/9dacc220-8d7f-4038-b618-92bb9b1333f0/releases/1.1.0/
+  "bandwagon_small", "bandwagon", ### ADDED  https://www.comses.net/codebases/4716/releases/1.0.0/
+  "commons_small", "commons", ### ADDED  https://www.comses.net/codebases/0f95455b-744d-4eb2-be9a-0074662799a3/releases/1.0.0/
+  "covidmask_small", "covidmask", ### ADDED  https://www.comses.net/codebases/ef690263-d2fb-4ac0-8f0b-71d8ee86186f/releases/1.0.0/
+  "earthwormjim",
+  "ebola_small", "ebola", ### ADDED https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7121695/
+  "fishmob_small", "fishmob", ### ADDDED https://www.comses.net/codebases/8f3d00ad-ca0b-44b2-a591-5ef4d24d8296/releases/1.0.0/
+  "ger_small", "ger", ### ADDDED http://www.mdpi.com/2073-445X/4/1/157
+  "hr_small", "hr", #### ADDED https://www.comses.net/codebase-release/7029c19d-669f-4f5d-ad68-f06d65c76759/
+  "insulation_small","insulation", ### ADDED https://www.comses.net/codebases/4419/releases/1.4.0/
+  "peerreview_small","peerreview", ### ADDED https://www.comses.net/codebases/6b77a08b-7e60-4f47-9ebb-6a8a2e87f486/releases/1.0.0/
+  "personalities_small","personalities", ### ADDED https://www.comses.net/codebases/df924b19-586d-4256-ba89-7fa59034720f/releases/1.0.0/
+  "mlevel_small","mlevel" ,  ### https://www.comses.net/codebases/d2011a12-f791-45aa-9f22-6a535dac3310/releases/1.6.1/
+  "neighbor_small","neighbor", ### ADDED https://www.comses.net/codebases/e0f12da8-a9d0-48a1-9446-30275482a8b4/releases/1.0.0/
+  "risknet_small","risknet", ### ADDED https://www.comses.net/codebases/0f779ef3-5c89-4fe0-be7f-2757f9789028/releases/1.0.0/
+  "standingovation_small","standingovation", ### ADDED https://luis-r-izquierdo.github.io/standingovation/
+  "shelling_small","shelling", ### ADDED https://www.comses.net/codebases/7c562b23-4964-4d28-862c-1c8b254fd6ad/releases/1.0.0/
+  "sugarscape_small","sugarscape", ### ADDED https://www.comses.net/codebases/6f72dfc9-e8c5-4d9c-b925-7338059573c3/releases/1.1.0/
+  "supplychain_small","supplychain", ### ADDED https://www.comses.net/codebases/05f6bc80-f79e-4850-9066-ffd914395aa4/releases/1.0.0/
+  "wolfsheep_small","wolfsheep" ### ADDED https://ccl.northwestern.edu/netlogo/models/WolfSheepPredation
+  
+)
+
+class_of_algorithm<-
+  c("simple",
+    "simple",
+    "abm", "abm", ### ADDED
+    "abm", "abm", ### ADDED https://www.comses.net/codebases/9dacc220-8d7f-4038-b618-92bb9b1333f0/releases/1.1.0/
+    "abm", "abm", ### ADDED  https://www.comses.net/codebases/4716/releases/1.0.0/
+    "complicated",
+    "complicated",
+    "illposed",
+    "illposed",
+    "complicated",
+    "abm", "abm", ### ADDED  https://www.comses.net/codebases/0f95455b-744d-4eb2-be9a-0074662799a3/releases/1.0.0/
+    "abm", "abm", ### ADDED  https://www.comses.net/codebases/ef690263-d2fb-4ac0-8f0b-71d8ee86186f/releases/1.0.0/
+    "complicated",
+    "abm", "abm", ### ADDED https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7121695/
+    "abm", "abm", ### ADDDED https://www.comses.net/codebases/8f3d00ad-ca0b-44b2-a591-5ef4d24d8296/releases/1.0.0/
+    "abm", "abm", ### ADDDED http://www.mdpi.com/2073-445X/4/1/157
+    "simple",
+    "simple",
+    "illposed",
+    "illposed",
+    "abm", "abm", #### ADDED https://www.comses.net/codebase-release/7029c19d-669f-4f5d-ad68-f06d65c76759/
+    "abm","abm", ### ADDED https://www.comses.net/codebases/4419/releases/1.4.0/
+    "complicated",
+    "complicated",
+    "illposed",
+    "illposed",
+    "simple",
+    "simple",
+    "simple",
+    "simple",
+    "simple",
+    "simple",
+    "abm","abm" ,  ### https://www.comses.net/codebases/d2011a12-f791-45aa-9f22-6a535dac3310/releases/1.6.1/
+    "simple",
+    "abm","abm", ### ADDED https://www.comses.net/codebases/e0f12da8-a9d0-48a1-9446-30275482a8b4/releases/1.0.0/
+    "simple",
+    "simple",
+    "illposed",
+    "illposed",
+    "illposed",
+    "illposed",
+    "illposed",
+    "illposed",
+    "abm","abm", ### ADDED https://www.comses.net/codebases/6b77a08b-7e60-4f47-9ebb-6a8a2e87f486/releases/1.0.0/
+    "abm","abm", ### ADDED https://www.comses.net/codebases/df924b19-586d-4256-ba89-7fa59034720f/releases/1.0.0/
+    "complicated",
+    "complicated",
+    "abm","abm", ### ADDED https://www.comses.net/codebases/0f779ef3-5c89-4fe0-be7f-2757f9789028/releases/1.0.0/
+    "abm","abm", ### ADDED https://luis-r-izquierdo.github.io/standingovation/
+    "abm","abm", ### ADDED https://www.comses.net/codebases/7c562b23-4964-4d28-862c-1c8b254fd6ad/releases/1.0.0/
+    "abm","abm", ### ADDED https://www.comses.net/codebases/6f72dfc9-e8c5-4d9c-b925-7338059573c3/releases/1.1.0/
+    "abm","abm", ### ADDED https://www.comses.net/codebases/05f6bc80-f79e-4850-9066-ffd914395aa4/releases/1.0.0/
+    "complicated",
+    "simple",
+    "simple",
+    "simple",
+    "simple",
+    "simple",
+    "simple",
+    "abm","abm" ### ADDED https://ccl.northwestern.edu/netlogo/models/WolfSheepPredation
+  )
+
+```
+
+# Introduction
+
+## Comparing estimation algorithms provides no winner
+
+A mathematical model is a set of causal mechanisms connecting together numerical variables.
+These mechanisms may depend on one or more parameters; some can be readily observed but many cannot.
+Because un-observed parameters affect the model output, it may be possible to identify their value by comparing the model output against what actually occurred in the data.  
+Estimation is this process of identifying parameters by comparing model output to data.
+Many estimation algorithms for simulation models have emerged in the past ten years[for a general review see @hartig_statistical_2011; for an agent-based review see @Thiele2014; for agent-based models in economics see @Fagiolo2019; @Platt2020].
+
+There are three limitations to current estimation literature.
+First, papers that introduce new estimation algorithms tend to showcase their performance on few idiosyncratic examples so that comparisons across methods remain difficult.
+Second, reviews that compare estimation algorithms tend to be small, focusing only on one field, few models and estimation algorithms.
+Third, existing reviews tend to mix together two steps: the processing of model outputs into useful summary statistics (or distance functions) and the actual algorithm used for estimation. 
+The processing phase is very specific to each discipline which makes it hard to apply lessons from one paper to agent-based models in another field.
+
+Here we build a more thorough comparison of nine estimation algorithms across 41 simulation models (both agent-based and not).
+Our original objective was to pick the best estimation algorithm so that authors could default to it without worrying about the rest of the estimation literature.
+We establish instead that there is no best algorithm: both the absolute and relative performance are context-dependent.
+
+The best performing estimation algorithm changes not just between models but sometimes even between parameters of the same model.
+Worse, even though the best algorithm is context dependent, choosing the right one matters more than quadrupling the number of simulations.
+Worse still, for all estimation algorithms there is always at least a case where they fail entirely to estimate a parameter that at least another algorithm identified.
+
+This dooms the hope of there being a "best" estimation algorithm.
+More practically  this prevents agent-based authors from delegating to a literature review such as this one the task of picking the estimation algorithm for them.
+The cross-validation testing that we implement here needs to be repeated for any new model.
+
+Critically, the same cross-validation testing that ranks algorithms can also be used to diagnose identification failures: the inability to recover the parameters' value from data[@Lewbel2019; @Canova2005].
+We show that about half of the agent-based models tested have at least one unidentifiable parameter.
+Identification failures are common in agent-based models but identifying them provides us with clues on how to solve them or understand their causes and consequences.
+
+
+## The challenge of estimating agent-based models
+
+Two factors complicate the estimation of agent-based models.
+First, agent-based models tend to simulate complex systems with many moving parts and parameters. 
+Second, it is almost always impossible to identify a likelihood function for an agent-based model [the only exception we know of is @Monti2020].
+A likelihood function is an equation connecting parameters with data and is useful to operationalize the estimation problem into a numerical maximization (change the parameters to maximize the likelihood).  
+For simple models we can substitute the unknown likelihood with a quasi- or pseudo-likelihood object and maximize that instead [@Hooten2020 provides a good overview on this topic in the context of agent-based models].
+This avenue however remains too computationally expensive for most agent-based models.
+
+Without a likelihood, the only alternative is to condense both model output and data into a set of comparable summary statistics.  
+The challenge in agent-based models is that there is an immense number of potential summary statistics to generate from extremely heterogeneous model outputs, such as maps, histograms and time series[@Lee2015 reviews the complexities of agent-based outputs].
+In principle having many summary statistics ought to be an advantage as we have many dimensions on which to measure the discrepancy between data and simulation.
+In practice however many summary statistics will provide either noisy, useless or duplicate information and degrade estimation performance.
+
+Subject expertise can sometimes be used to select the most important summary statistics [the list of recent developments in @Fagiolo2019 for example deals almost exclusively with this task] but the choice of the best summary statistics will often be arbitrary.
+An alternative is to start from a large set of summary statistics and then use statistical methods to pick the summaries and weigh their information to [see @Carrella2020 for an agent-based model application; see @Blum2013 for an approximate Bayesian computation review; @Jiang2017 for a neural network approach to discover summary statistics from simulated data].
+Even after choosing which summary statistic to deal with however, we still need to choose the right estimation algorithm: the procedure that maps summary statistics back to the parameters that generated them.
+
+
+## The qualities we look for in an estimation algorithm
+
+
+The theoretical literature on simulation inference, inherited from economics and in particular the indirect inference tradition [@Gourieroux1993; @Smith2008; @Grazzini2015], is concerned with asymptotics and in particular consistency.
+Consistency is achieved when the estimation algorithm converges to the real value as the data used to train it (both real raw data and number of simulation runs) grows to infinity.
+@Zhao2010 shows that two conditions are sufficient for consistency. First, no equifinality: two different parameter inputs cannot produce the same model output. Second, once we fix a parameter input and run the model for an infinite time steps and replications, all summary statistics must converge (that is, there cannot be summary statistics that never "settle" or do so at different values for different runs).
+
+This theoretical contribution remains largely ignored in the applied agent-based literature.
+There are three justifications for this.
+First, consistency conditions are probably violated by many agent-based models as equifinality is common [@Poile2016; @Williams2020] and many summary statistics are either generated by non-stationary dynamics [@Grazzini2015] or by distributions whose sample moments do not converge, particularly power laws [@LeBaron2001; @axtell1999emergence].  
+Second, it is often impossible to test whether the consistency conditions are violated.
+Third, asymptotic results hold little appeal for applied work facing limited data and a finite computational budget. 
+We are usually interested in the performance we can achieve for the problem at hand rather than guaranteed consistency for infinite data we will never collect.
+
+Applied work looks instead for three qualities in an estimation algorithm.
+First, we want to achieve good accuracy: estimate parameters as close as possible to the ones that generated the data we observe.
+Second, we want to achieve good coverage: estimate the smallest range of values that includes the real parameters with the correct pre-specified probability (confidence level).
+Third, we want high estimation efficiency: achieve the previous two objectives with the least amount of runs since agent-based models are expensive to simulate.
+
+
+The thesis of this paper is that a fourth practical quality should be prioritized instead: testing efficiency.
+We should prefer estimation algorithms that can cheaply measure their own accuracy and coverage in any given context.
+We can test any estimation algorithm by running a simulation with known parameters, treat its output as if it was the real data and then ask the estimation algorithm to discover the parameters we started with.
+While the testing technique is universal, its computational costs differ between algorithms.
+
+
+
+
+## Why this paper focuses exclusively on reference table algorithms
+
+There are two main families of estimation algorithms: rejection-based and search-based algorithms.
+Rejection algorithms repeatedly run a model with random parameters until a stopping condition is reached.
+Reference table algorithms [@Cornuet2008a] are the subset of rejection algorithms where the stopping condition is simply to run the model a fixed amount of times.
+
+Rejection algorithms are inefficient because many runs will produce output far from the real data.
+Search-based algorithms then replace random sampling with minimizing a distance function between model output and data [@Calvez2006; @Sisson2007; @Pietzsch2020].
+This approach increases estimation efficiency.
+
+The estimation efficiency of search-based methods becomes a liability when testing, however.
+Search algorithms explore only the part of the parameter space closest to the original data-set while testing requires it to minimize the distance to many new targets.
+Search-based algorithms have no alternative but to restart their minimization for every new test.
+The computational costs of testing search-based algorithms quickly become astronomical [a point well demonstrated in @Platt2020].
+
+Testing reference table algorithms, by contrast, involves running no new simulation.
+The original simulation runs were already spread out across the parameter space and the same runs used to estimate the parameters of the real data-set can be used to estimate the parameters in any new test.
+The advantage is even greater when we want to rank the performance of many estimation algorithms.
+This is because we can recycle the simulation output used to train one reference table algorithm to perform the same estimation with any other.
+In contrast because search-based algorithms control the trajectory of parameters fed into the model, we need to re-run the model again for each search-based algorithm we want to rank.
+
+A numerical comparison may help.
+Imagine producing a testing set of 500 runs with known input parameters. 
+We want to rank five alternative algorithms by their ability to re-discover the known parameters given a computational budget of 1,000 simulations per estimation.
+Testing five search-based algorithms will require us to run the simulation model 2,500,000 times: 1,000 runs for each of the five search algorithms for each of the 500 items in the testing set.  
+Comparing five different reference table methods will require only 1,000 runs in total to produce a training data-set which will be shared across each algorithm and re-used for each item of the testing set.  
+
+
+# Materials and Methods
+
+We define here a simulation model as any function that depends on a set of parameter $\theta$ to generate a set of summary statistics $S(\theta)$.
+We are interested in the estimation problem where we observe summary statistics $S^*$ and we want to know which parameter $\theta^*$ most likely generated them.
+
+We parametrize 41 simulation models (described in section \@ref(experiments) and the appendix).
+We have nine estimation algorithms to do so (described in section \@ref(algorithms)).
+All are "reference table" algorithms: algorithms whose only input for estimation is a table of simulation parameters $\theta$, selected by random sampling, and the summary statistics $S(\theta)$ they generate.
+We split this reference table into training and testing sets and ask each algorithm to estimate the parameters of the testing set observing only the training runs.
+
+We want to measure the quality of an estimation algorithm along two dimensions: point predictions "performance" and confidence interval "coverage".
+We measure point prediction performance as:
+
+\begin{equation} 
+\text{Performance} = 1 - \frac{ \sum_j \sqrt{\left( \theta^*_j - \hat \theta_j \right)^2}}{ \sum_j \sqrt{\left( \theta^*_j - \bar \theta \right)^2}} 
+\end{equation}
+\label{eq:performancecoefficient}
+
+Where $\hat \theta$ is the estimated parameter, $\theta^*$ is the real hidden parameter, $\bar \theta$ is the average parameter value in the training data and $j$ is the row of the testing data-set we are estimating.
+In other words, performance measures how much more accurate (measured in root mean square error) estimation is compared to just guessing the average parameter value without performing any estimation.
+Performance ranges from 1 (perfectly estimated) to 0 (unidentified) to negative values (mis-identified).
+Without square roots this is equal to predictivity [@Salle2014] and modelling efficiency [@Stow2009].
+
+We define coverage as in @MarixnArxiv as the percentage of times the real parameter falls within the 95% prediction intervals suggested by the estimating algorithm. The best coverage is 95%: higher generates type I errors, lower generates type II errors.
+
+
+
+
+## Models {#experiments}
+
+We estimate the parameters of 41 separate simulation models.
+We selected them either because they appeared as examples in at least another estimation paper (20 models) or because they were open source agent-based models (21 models) available on the COMSES model library [@Rollins2013].
+We can roughly categorize these models into four groups: simple, ill posed, complicated and agent-based models.
+Table \@ref(tab:experimentsmasterlist) lists them all. In the appendix we provide a brief description of each.
+
+
+Table: (\#tab:experimentsmasterlist)  List of all estimated models 
+
+| Experiment               | No. of parameters | No. of summary statistics | No. of simulations | Testing            |
+|--------------------------|-------------------|---------------------------|--------------------|--------------------|
+| $\alpha$-stable          | 3                 | 11                        | 1,250 or 5,000     | 5-fold CV          |
+| Anasazi ABM              | 4                 | 28                        | 1,250 or 5,000     | 5-fold CV          |
+| Birds ABM                | 2                 | 2 or 105                  | 5,000              | 5-fold CV          |
+| Bottom-up Adaptive Macroeconomics ABM | 8    | 180                       | 1,250 or 5,000     | 5-fold CV          |
+| Broken Line              | 1                 | 10                        | 1,250 or 5,000     | 5-fold CV          |
+| Coalescence              | 2                 | 7                         | 100,000            | Single testing set |
+| COVID-19 US Masks ABM    | 4                 | 51                        | 1,250 or 5,000     | 5-fold CV          |
+| Earthworm                | 11                | 160                       | 100,000            | Single testing set |
+| Ecological Traits        | 4                 | 4                         | 1,250 or 5,000     | 5-fold CV          |
+| Ebola Policy ABM         | 3                 | 31                        | 1,250 or 5,000     | 5-fold CV          |
+| FishMob ABM              | 5                 | 104                       | 1,250 or 5,000     | 5-fold CV          |
+| Food Supply Chain ABM    | 5                 | 99                        | 1,250 or 5,000     | 5-fold CV          |
+| Ger Grouper ABM          | 4                 | 41                        | 1,250 or 5,000     | 5-fold CV          |
+| $g$-and-$k$ distribution | 4                 | 11                        | 1,250 or 5,000     | 5-fold CV          |
+| Governing the Commons ABM | 4                | 44                        | 1,250 or 5,000     | 5-fold CV          |
+| Hierarchical Normal Mean | 2                 | 61                        | 1,250 or 5,000     | 5-fold CV          |
+| Intra-Organizational Bandwagon ABM | 2       | 43                        | 1,250 or 5,000     | 5-fold CV          |
+| Insulation Activity ABM  | 3                 | 45                        | 1,250 or 5,000     | 5-fold CV          |
+| Lotka-Volterra           | 2                 | 16 (noisy or non-noisy)   | 100,000            | Single testing set |
+| Locally Identifiable     | 2                 | 2                         | 1,250 or 5,000     | 5-fold CV          |
+| Moving Average (2)       | 2                 | 2                         | 1,250 or 5,000     | 5-fold CV          |
+| Median and MAD           | 2                 | 2 or 4                    | 1,250 or 5,000     | 5-fold CV          |
+| Multilevel Selection ABM | 4                 | 44                        | 1,250 or 5,000     | 5-fold CV          |
+| $\mu$-$\sigma^2$         | 2                 | 2                         | 10,000             | 5-fold CV          |
+| NIER ABM                 | 4                 | 60                        | 1,250 or 5,000     | 5-fold CV          |
+| Normal 25                | 2                 | 25                        | 1,250 or 5,000     | 5-fold CV          |
+| Pathogen                 | 4                 | 11                        | 200,000            | Single testing set |
+| Partially Identifiable   | 2                 | 2                         | 1,250 or 5,000     | 5-fold CV          |
+| Peer Review Game ABM     | 5                 | 77                        | 1,250 or 5,000     | 5-fold CV          |
+| OfficeMoves ABM          | 3                 | 36                        | 1,250 or 5,000     | 5-fold CV          |
+| RiskNet ABM              | 4                 | 40                        | 1,250 or 5,000     | 5-fold CV          |
+| Real Business Cycle      | 6                 | 44 or 48                  | 2,944 or 2,961     | 5-fold CV          |
+| Scale                    | 2                 | 1                         | 1,250 or 5,000     | 5-fold CV          |
+| Schelling-Sakoda Extended ABM   | 3          | 77                        | 1,250 or 5,000     | 5-fold CV          |
+| Standing Ovation ABM     | 3                 | 20                        | 1,250 or 5,000     | 5-fold CV          |
+| Sugarscape ABM           | 5                 | 146                       | 1,250 or 5,000     | 5-fold CV          |
+| Unidentifiable           | 2                 | 1                         | 1,250 or 5,000     | 5-fold CV          |
+| Toy Model                | 2                 | 2                         | 1,250 or 5,000     | 5-fold CV          |
+| Two-factor Theory ABM    | 4                 | 41                        | 1,250 or 5,000     | 5-fold CV          |
+| Wilkinson                | 1                 | 1                         | 1,250 or 5,000     | 5-fold CV          |
+| Wolf Sheep Predation ABM | 7                 | 33                        | 1,250 or 5,000     | 5-fold CV          |
+
+
+```{r}
+#get all the files
+error_path<-paste(path,"errors",sep="")
+error_table<-list.files(error_path, ".csv")  %>% 
+  #turn the vector into a data.frame (name-value)
+  enframe() %>%
+  #read each file
+  mutate( observations = map(file.path(error_path,value),~read_csv(.))) %>%
+  #clean up names
+  select(-name) %>% rename(experiment=value) %>% 
+  mutate(experiment=gsub(".csv","",experiment)) %>%
+  #unnest results and you are done
+  unnest(observations)  %>%
+  #remove M earthworm which is always 0 anyway
+  filter(!(experiment=="earthwormjim" & parameter=="M")) %>%
+  ### EBOLA SIMULATION contagiousrate and fatality.rate are automatically replaced
+  ### so it was pointless to modify them
+  filter(!(experiment %in% c("ebola","ebola_small") & parameter%in%c("contagious.rate",
+                                                                     "fatality.rate"))) 
+
+
+
+
+
+coverage_path<-paste(path,"contained",sep="")
+coverage_table<-list.files(coverage_path, ".csv")  %>% 
+  #turn the vector into a data.frame (name-value)
+  enframe() %>%
+  #read each file
+  mutate( observations = map(file.path(coverage_path,value),~read_csv(.))) %>%
+  #clean up names
+  select(-name) %>% rename(experiment=value) %>% 
+  mutate(experiment=gsub(".csv","",experiment)) %>%
+  #unnest results and you are done
+  unnest(observations)  %>%
+  #remove M earthworm which is always 0 anyway
+  filter(!(experiment=="earthwormjim" & parameter=="M")) %>%
+  ### EBOLA SIMULATION contagiousrate and fatality.rate are automatically replaced
+  ### so it was pointless to modify them
+  filter(!(experiment %in% c("ebola","ebola_small") & parameter%in%c("contagious.rate",
+                                                                     "fatality.rate"))) 
+
+
+
+## who's best in terms of performance?
+error_table %>% filter(method=="average") %>% 
+  rename(average=value) %>% select(-method) -> 
+  averages
+
+
+
+performance<-
+  left_join(error_table,averages) %>%
+  # complete(experiment,method,fill=list(value=NA)) %>%
+  mutate(performance=1-value/average) 
+
+
+##### REMOVE SOME INVALID OBSERVATIONS:
+
+```
+
+
+Simple simulation models have few parameters and summary statistics.
+They feature prominently in the ABC literature both as a teaching tool and to compare different algorithms.
+They are useful because they run quickly but they may bias comparisons towards simpler estimation algorithms.
+
+Ill-posed simulation models face clear identification issues: the inability to recover parameters given the information we have.
+There are many sources of identification issues and each ill-posed model highlights one particular form.
+A good estimation algorithm facing an ill-posed problem should display two features. 
+First we would like to maximize the quality of our estimated parameters when the information is available but noisy (the lesser problem of "weak" identification).
+Second we would like our estimation algorithm to recognize when the model cannot be identified and return wide confidence intervals, signalling estimation uncertainty.
+
+We split complicated simulation models into two sets, agent-based models and other complicated simulations.
+They face similar problems: they tend to be large, involve many input parameters and summary statistics. 
+From an estimation point of view there is no qualitative difference between the two but in practice agent-based models tend to be slower and produce more summary statistics.
+
+
+## Algorithms {#algorithms}
+
+We test nine reference table algorithms to parametrize simulations: five are ABC (Approximate Bayesian Computation) and four are regressions-only.
+We ignored search-based algorithms, such as synthetic likelihood [@Wood2010;@fasiolo2014introduction], ABC-MCMC [@hartig_statistical_2011] and Bayesian optimization [@Snoek2012].
+We also ignored regression-only algorithms that do not generate prediction intervals such as the deep neural networks proposed in @Creel2017 and the elastic nets proposed in @Carrella2018.
+
+All reference table algorithms share a common estimation procedure.
+First, we run the model "many" times and collect the random parameters we input and summary statistics the model outputs into a "reference table".
+The estimation algorithm then produces a rule to generalize the information in the reference table and to go from summary statistics back to the parameters that generated them.
+Finally we plug in the real summary statistics vector $S^*$ we observe from the data into this rule and obtain the estimated parameters.
+
+### ABC
+
+The first algorithm we use is the simple rejection ABC [@Pritchard1999; @Beaumont2002]. Start by ranking all training observations by their euclidean distance to the testing summary statistics \( \sum_i\left(  S_i(\theta) -  S^*_i \right)^2 \). Ignore all training observations except the closest 10%. 
+The distribution of $\theta$ parameters from the closest training observations becomes the posterior of the estimate $\theta^*$.
+
+The second algorithm is the local-linear regression adjusted ABC [@Beaumont2002].
+Weigh all training observations by an Epanechnikov kernel with bandwidth equal to euclidean the distance between the testing summary statistics  $S^*$ and the furthest $S(\theta)$ we would have accepted using simple rejection.
+Then run a local-linear regression on the weighted training set to estimate $\theta^*$ as the predicted $E[\theta |S(\theta)]$, using the residuals of that regression to estimate its posterior distribution.
+
+The third algorithm, neural network ABC, inputs the same weighted training set to a feed forward neural network [@Blum2010].
+The approach is similar to the local-linear regression above but the residuals are also weighted by a second regression (on the log squared residuals) to correct for heteroskedasticity.
+
+These three algorithms are implemented in the `abc` package[@Csillery2012] in R. We used the package default settings for its neural networks (10 networks, 5 units in the hidden layer and weight decay randomly chosen for each network between $0.0001$,$0.001$ and $0.01$).
+
+The fourth and fifth algorithm are semi-automatic ABC methods which "pre-process" summary statistics before applying rejection ABC[@Prangle2014].
+More precisely, the original summary statistics $S(\theta)$ are fed into a set linear regressions estimating $r_i=E[\theta_i|S(\theta)]$ (one for each parameter of the model) and the values are used as summary statistics for the simple rejection ABC.
+The rationale is that these regressions will project the summary statistics into a space where rejection ABC performs better.
+We do this in two different ways here: by running first or fourth degree linear regressions in the pre-processing phase.
+This is done using the R package `abctools`[@Nunes2015] and their default parameters: using half of the training set to run the regression and the other half to run the rejection ABC.
+
+A feature of all ABC methods is that they are local: they remove or weight training observations differently depending on the $S^*$ (the "real" summary statistics).
+This means that during cross-validation we need to retrain each ABC for each row of the testing set.
+
+
+### Regression Only
+
+Estimating parameters by regression is a straightforward process.
+We build a separate regression $r$ for each $\theta$ in the reference table as dependent variable using the summary statistics $S(\theta)$ as the independent variables.
+We plug the real summary statistic $S^*$ in each regression and the predicted value is the estimated parameter $\theta^*$.
+
+The simplest algorithm of this class is linear regression of degree one.
+It is linear, its output is understandable and is fast to compute.
+This speed allows us to estimate the prediction interval of $\theta^*$ by resampling bootstrap[@Davison]: we produce 200 bootstrap data sets and run the same linear regression on each one. 
+From each regression $i$ we collect their prediction $\beta_i S(\theta^*)$ and sample one standardized residual $e$ (a residual divided by the square root of one minus the hat value associated with that residual).
+This produces a set of 200 $\beta_i S(\theta) + e_i$.
+The 95% prediction interval is then defined by 2.5 and 97.5 percentile of this set.
+
+In practice then predictions are distributed with the formula:
+\[ r(S)+A+B \]
+where \( r(S) \) is the regression prediction, \(A\) is an standard error adjustment due to uncertainty about the estimated coefficients (in this case \( S(\hat \beta - \beta_i) \) where $\hat \beta$ is the original OLS estimated parameters, and $\beta_i$ is a bootstrap estimate of the same) and B is an adjustment due to irreducible noise (in this case, a random sample of standardized residuals).
+
+
+A more complex algorithm that is not linear but still additive is the generalized additive model(GAM), where we regress:
+\[ \hat \theta = \sum s_i(S_i(\theta)) \]
+$s_i$ is a smooth spline transformation [see chapter 9 in @friedman_elements_2001; also @Wood2002].
+We use the `mgcv` R package[@Wood2017;@Wood2004].
+The  bootstrap prediction interval we built for the linear regression is too computationally expensive to replicate with GAMs.
+Instead we produce prediction intervals by assuming normal standard errors (generated by the regression itself) and by resampling residuals directly: we generate 10,000 draws of $z(S(\theta))+\epsilon$ where $z$ is normally distributed with standard deviation equal to regression's standard error at $S(\theta)$ and $\epsilon$ is a randomly drawn residual of the original regression.  
+The 95% prediction interval for $\theta^*$ is then defined by 2.5 and 97.5 percentile of the generated $z(S(\theta^*))+\epsilon$ set.
+
+A completely non-parametric regression advocated in @MarixnArxiv is the random forest[@Breiman2001].
+We implement this in two ways here. 
+First, as a quantile random forest [@Meinshausen2006], using in `quantregForest` R package [@Meinshausen2017]; prediction intervals for any simulation parameter $\theta^*$ are the predicted 2.5 and 97.5 quantile at $S(\theta^*)$.
+Second, as a regression random forest using the `ranger` and `caret` packages in R [@Wright2015;@Kuhn2008]. 
+For this method we generate prediction intervals as in GAM regressions. 
+We generate 10,000 draws of $z(S(\theta))+\epsilon$ where $z$ is normally distributed with standard deviation equal to the infinitesimal jackknife standard error[@Wager2014] at $S(\theta)$ and $\epsilon$ is a resampled residual; we then take the 2.5 and 97.5 percentile of the $z(S(\theta^*))+\epsilon$ set as our prediction interval.
+
+
+
+# Results
+
+## Point performance
+
+```{r ptable}
+
+format_performance<-function(x){
+  
+  
+  ifelse(x>-10,scales::number(x,accuracy=.001),"< -10")
+}
+
+
+appendix<-
+  performance %>%  select(-value,-average) %>%
+  mutate(performance=format_performance(performance)) %>%
+  mutate(method=factor(method,levels = methods_used,
+                       labels = names(methods_used)))  %>%
+  mutate(experiment = factor(experiment,levels=experiments_list,
+                             labels=experiment_label)) %>%
+  arrange(method) %>%
+  filter(method!="Average") %>%
+  spread(method,performance) %>%
+  rename(Experiment=experiment,Parameter=parameter) %>%
+  knitr::kable(digits=3,format.args = c("scientific"=FALSE))
+
+```
+
+
+Table \@ref(tab:predictiontable) summarises the performance of each algorithm across all identifiable estimation problems (here defined as those where at least one algorithm achieves performance of 0.1 or above).
+Estimation by random forests achieves the highest average performance and the lowest regret (average distance between its performance and the highest performance in each simulation). Even so, regression random forests produce the best point predictions only for 77 out of 226 identifiable parameters. GAM regressions account for another 69 best point predictions.
+
+Local linear regression and neural-networks are also useful in the ABC context, achieving the highest performance for 47 parameters.
+Local linear regressions face numerical issues when the number of summary statistics increase and they were often unable to produce any estimation.
+The performance of neural network ABC could be further improved by adjusting its hyper-parameters, but this would quickly accrue high computational costs.  
+The appendix contains a table with the performance for all parameters generated by each algorithm. 
+
+
+
+```{r predictiontable}
+
+
+# median loss from the best
+best<-
+  performance %>% group_by(experiment,parameter) %>%
+  filter(performance==max(performance)) %>%
+  ungroup() %>%
+  select(-method,-value,-average) %>%
+  rename(best=performance)
+
+
+# also we can look at median improvement over lm alone
+lms<-
+  performance %>% group_by(experiment,parameter) %>%
+  filter(method=="lm") %>%
+  ungroup() %>%
+  select(-method,-value,-average) %>%
+  rename(lmp=performance)
+
+## big table with everything
+point_table<-
+  left_join(performance,best,by=c("experiment","parameter")) %>%
+  left_join(lms) %>%
+  select(-value,-average) %>%
+  mutate(change_from_best=(performance-best)/best) %>%
+  mutate(change_from_lm=(performance-lmp)/lmp) %>%
+  group_by(experiment,parameter) %>%
+  mutate(was_best=(performance==max(performance))) %>%
+  ungroup() %>%
+  filter(best>.1) %>% #there has to be some identification!
+  group_by(method) %>%
+  summarise(
+    times_best=sum(was_best),
+    mean_from_best=format_performance(median(change_from_best)),
+    mean_performance = format_performance(median(performance))) %>%
+  mutate(method=factor(method,levels = methods_used,
+                       labels = names(methods_used))) 
+point_table %>%
+  arrange(method) %>% 
+  filter(method!="Average") %>%
+  knitr::kable(digits = 3, col.names = c("Algorithm",
+                                         "# of times highest performance",
+                                         "Regret",
+                                         "Median performance"),
+               caption = "Table showing for each algorithm how many parameters were best estimated by that algorithm; regret, defined as the median % loss between the performance of the algorithm and the best performance in each estimation; the median performance overall.  Only estimations for which at least one method achieved performance above 0.05 were considered.",format="pandoc")
+
+# 
+# ggplot(performance %>% filter(performance>-1)) +
+#   geom_histogram(aes(x=performance,fill=method),col="white") +
+#   facet_wrap(method~.)
+
+
+## median performance is not very good. all it does is put all its weight on the "median" difficulty problem
+
+```
+
+
+It is important to note that the advantages of random forests become apparent only when estimating agent-based models. 
+Simpler estimation algorithms perform just as well or better in smaller problems.
+This is shown in table \@ref(tab:predictiontablesecond).  
+This implies that interactions between summary statistics as well as the need to weigh them carefully matters more when estimating agent-based models than simpler simulations, justifying the additional algorithm complexity.
+
+
+```{r predictiontablesecond}
+left_join(performance,best,by=c("experiment","parameter")) %>%
+  left_join(lms) %>%
+  select(-value,-average) %>%
+  mutate(change_from_best=(performance-best)/best) %>%
+  mutate(change_from_lm=(performance-lmp)/lmp) %>%
+  group_by(experiment,parameter) %>%
+  mutate(was_best=(performance==max(performance))) %>%
+  ungroup() %>%
+  filter(best>.1) %>% 
+  left_join(data.frame(experiment=experiments_list,class=class_of_algorithm)) %>% #there has to be some identification!
+  group_by(method,class) %>%
+  summarise(
+    times_best=sum(was_best)) %>%
+  mutate(method=factor(method,levels = methods_used,
+                       labels = names(methods_used)))  %>% spread(class,times_best) %>%
+  arrange(method) %>% 
+  filter(method!="Average") %>%
+  knitr::kable(digits = 3, col.names = c("Algorithm",
+                                         "ABM",
+                                         "Complicated",
+                                         "Ill-posed",
+                                         "Simple"),
+               caption = "Table showing how many times each algorithm had the highest performance when estimating a parameter arranged by type of simulation problem",format="pandoc")
+
+```
+
+Another important qualification is that random forests tend to perform better for the parameters where maximum performance is below 0.3.
+This is intuitive because we expect non-linear regressions to function even when summary statistics are noisy and uninformative but it also means that many of the parameters that are best estimated by random forests remain only barely identified.
+This we show in table \@ref(tab:predictiontablethird).
+
+```{r predictiontablethird}
+left_join(performance,best,by=c("experiment","parameter")) %>%
+    left_join(lms) %>%
+    select(-value,-average) %>%
+    mutate(change_from_best=(performance-best)/best) %>%
+    mutate(change_from_lm=(performance-lmp)/lmp) %>%
+    group_by(experiment,parameter) %>%
+    mutate(was_best=(performance==max(performance))) %>%
+    ungroup() %>%
+    filter(best>.1) %>%
+    mutate(best=cut(best,breaks=c(0.1,0.3,0.5,0.7,1))) %>%
+    group_by(method,best) %>%
+    summarise(
+        times_best=sum(was_best)) %>%
+    spread(best,times_best) %>% filter(method!="average") %>%
+  mutate(method=factor(method,levels = methods_used,
+                       labels = names(methods_used))) %>%
+  knitr::kable(digits = 3, col.names = c("Algorithm",
+                                         "0.1-0.3",
+                                         "0.3-0.5",
+                                         "0.5-0.7",
+                                         "0.7-1"),
+               caption = "Table showing how many times each algorithm had the highest performance when estimating a parameter, arranged by best performance achieved by any algorithm for that parameter.",format="pandoc")
+
+```
+
+
+
+Table \@ref(tab:failuretable) lists the number of identification failures: parameters for which the algorithm performance was below 0.1 but at least a competing algorithm achieved performance of 0.3 or above.
+In other words we are tabulating cases where the parameter can be identified but an estimation algorithm fails to do so.
+Local-linear regression struggled with the "natural mean hierarchy" simulation.
+Linear regression failed to estimate the $b$ parameter from the Lotka-Volterra models, the $\sigma$ parameter from the normal distribution and the $A$ parameter from the ecological traits model.
+Random forests failed to identify $\mu$ and $\delta$ from the RBC macroeconomic model.
+GAM regressions, in spite of having often been the best estimation algorithm, failed to identify 10 parameters, all in agent-based models (particularly in "Sugarscape" and "Wolf-Sheep predation").
+
+
+```{r predictionthird}
+## big table with everything
+point_table<-
+  left_join(performance,best,by=c("experiment","parameter")) %>%
+  left_join(lms) %>%
+  select(-value,-average) %>%
+  mutate(change_from_best=(performance-best)/best) %>%
+  mutate(change_from_lm=(performance-lmp)/lmp) %>%
+  group_by(experiment,parameter) %>%
+  mutate(was_best=(performance==max(performance))) %>%
+  ungroup() %>%
+  filter(best>.1) %>% #there has to be some identification!
+  group_by(method) %>%
+  summarise(
+    times_best=sum(was_best),
+    mean_from_best=format_performance(median(change_from_best)),
+    mean_performance = format_performance(median(performance))) %>%
+  mutate(method=factor(method,levels = methods_used,
+                       labels = names(methods_used))) 
+
+
+```
+
+
+Table \@ref(tab:failuretable) also shows mis-identifications, cases where an algorithm estimates significantly worse than using no algorithm at all (performance is below -0.2).
+These are particularly dangerous failures because the estimation algorithm "thinks" it has found some estimation pattern which proves to be worse than assuming white noise.
+Mis-identification seems to apply asymmetrically: it is more common for complicated approximate Bayesian computations and simple regressions.
+
+```{r failuretable}
+
+
+
+miss<-
+  left_join(performance,best,by=c("experiment","parameter")) %>%
+  filter(method!="average") %>%
+  filter(performance < -.2) %>%
+  mutate(method=factor(method,levels = methods_used,
+                       labels = names(methods_used)))%>%
+  group_by(method) %>%
+  summarise(failures=n()) %>%
+  ungroup() %>%
+  complete(method,fill=list(failures=0)) %>%
+  filter(method!="Average") %>%
+  arrange(method) %>%
+  rename(misidentifications=failures)
+
+failures<-left_join(performance,best,by=c("experiment","parameter")) %>%
+  filter(method!="average") %>%
+  filter(best>.3 & performance <.1) %>%
+  mutate(method=factor(method,levels = methods_used,
+                       labels = names(methods_used)))%>%
+  group_by(method) %>%
+  summarise(failures=n()) %>%
+  ungroup() %>%
+  complete(method,fill=list(failures=0)) %>%
+  filter(method!="Average") %>%
+  arrange(method) 
+
+failures %>%
+  mutate(misidentifications=miss$misidentifications) %>%
+  knitr::kable(
+    col.names = c("Algorithm","Identification Failures", "Mis-identifications"),
+    caption = "In this table we tabulate the number of identification failures and mis-identifications for each algorithm. Identification failures are parameters where the algorithm had performance below 0.1 but at least another algorithm had performance above .3. Mis-identification occurs whenever an algorithm achieves negative performance below -0.2 i.e. estimating significantly worse than just predicting the average",format="pandoc"
+  )
+```
+
+Figure \@ref(fig:crossvictories) compares algorithms pairwise with respect to their performance.
+Even the "best" algorithm, random forest, has only a 52% chance of doing better than GAMs and performs worse than neural-network ABC for 30% of the parameters.
+The humble first degree linear regression (even after accounting for its identification failures and mis-identifications) wins more than half of the comparisons against any ABC except neural-networks.
+
+```{r crossvictories, fig.cap = "Percentage of times algorithm 1 has higher performance than algorithm 2 for all estimations where at least one algorithm achieves .1 or more performance. A blue cell means that algorithm 1 performs generally better, a red cell means that algorithm 2 does."}
+
+victories<-  left_join(performance,best,by=c("experiment","parameter")) %>%
+  filter(best>.1)
+
+
+NUMBER_OF_ROWS<-victories %>% group_by(experiment,parameter) %>% summarise(n()) %>% nrow()
+
+
+check_victories<-function(method1,method2){
+  
+  #   print(paste(method1,method2,sep="-"))
+  methods<-c(method1,method2)
+  
+  if(method1==method2){
+    value = NaN}
+  else {
+    value =  
+      victories %>% filter(method %in% methods) %>% 
+      group_by(experiment,parameter) %>% 
+      filter(performance==max(performance)) %>% 
+      group_by(method) %>% summarise(victories=n()) %>% 
+      filter(method==method1) %>%
+      pull(victories) / NUMBER_OF_ROWS
+    if(length(value) ==0 ) #if there are no victories
+      value<-0
+  }
+  #   print(paste(method1,method2,value,sep="-"))
+  
+  
+  return(data.frame(
+    method1 = method1,
+    method2=method2,
+    victory_rate=value
+  ))
+}
+
+data<-NULL
+for(method1 in victories$method %>% unique()){
+  for(method2 in victories$method %>% unique()){
+    data<-rbind(data,
+                check_victories(method1,method2))
+  }
+}
+
+ggplot(data %>% filter(method1!="average") %>% filter(method2!="average") %>%
+         mutate(victory_rate = round(victory_rate,2)) %>%
+         mutate(method1=factor(method1,
+                               levels = methods_used,
+                               labels = names(methods_used))) %>%
+         mutate(method2=factor(method2,levels = methods_used,
+                               labels = str_replace_all(names(methods_used),pattern = " ",replacement = "\n"))) 
+       
+) +
+  geom_tile(
+    aes(x=method2,y=method1,fill=victory_rate)
+  ) +
+  scale_fill_gradient2(low="red",mid="white",high="blue",midpoint = 0.5,guide=FALSE) +
+  geom_label(aes(x=method2,y=method1,label=ifelse(is.nan(victory_rate),NA,
+                                                  scales::percent(victory_rate)))
+             
+  ) +
+  xlab("Algorithm 2") +
+  ylab("Algorithm 1")
+
+
+```
+
+While there is no overall winner that does not mean that the algorithm choice is unimportant.
+On average we improve point prediction performance more by choosing the right algorithm than quadrupling the training data size.
+To prove this we focus on all parameters that were estimated both with 1,250 and 5,000 training simulations. 
+Across 237 parameters that were estimated, switching from the worst to the best algorithm improves point prediction performance on average by 0.323 (standard deviation of 0.248, 241 observations) and switching from median to best algorithm improves performance by 0.230 (standard deviation of 0.204, 241 observations).
+Quadrupling the number of training runs but using the same estimation algorithm increases performance by only 0.0370 (standard deviation of 0.0736, 812 observations).  
+
+
+
+
+```{r bigvssmall, eval=FALSE}
+library(broom.mixed)
+anoza<-performance %>% separate(experiment,into=c("name","size"),sep="_") %>%
+  mutate(size=ifelse(name %in% ABM_sublist & is.na(size),"medium",size)) %>% filter(size %in% c("small","medium","big")) %>% mutate(size=str_replace_all(size,"medium","big")) %>%
+  filter(method!="average") %>% 
+  filter(performance>-1) %>%
+  #  filter(method %in% c("loess","neuralnet","loclin","rfboot")) %>%
+  mutate(task = paste(name,parameter,sep="_"))
+
+
+coef_breaks<-
+  c("(Intercept)",
+    "methodloclin",
+    "methodloess",
+    "methodneuralnet",
+    "methodrejection",
+    "methodrf",
+    "methodrfboot",
+    "methodsabc_1d",
+    "methodsabc_4d",
+    "sizesmall"#,
+    #"sd_(Intercept).task",
+    #"sd_Observation.Residual"
+  )
+
+coef_names<- c(
+  "Intercept",
+  "Local-linear ABC",
+  "GAM",
+  "Neural Network ABC",
+  "Rejection ABC",
+  "Quantile Random Forest",
+  "Regression Random Forest",
+  "Semi-automatic ABC 1D",
+  "Semi-automatic ABC 4D",
+  "Small Training Size"#,
+  #"sd_(Intercept).task",
+  #"sd_Observation.Residual"
+)
+
+
+
+
+
+testo<-lmer(performance~(1|task)+method+size,data=anoza) 
+
+broom::tidy(testo) %>%
+  filter(!str_detect(term,"sd")) %>%
+  mutate(term=factor(term,levels = coef_breaks,labels = coef_names)) %>%
+  select(-group,-effect) %>%
+  knitr::kable(col.names=c("Term","Estimate","Std. Error","t"),digits=3,
+               caption = "Coefficients of running a linear mixed effects model regressing performance on algorithm used and size of the training sample (both fixed effects) with each estimation as a random intercept. Algorithm effects are with respect to linear regression.",format="pandoc" ) 
+
+# ggplot(anoza %>%
+#          #ignore comically small values
+#          filter(performance > -10))+
+#   geom_boxplot(aes(x=task,y=performance,fill=size)) +
+#   xlab("Algorithm 1") +
+#   ylab("Algorithm 2")#+
+# #  geom_point(aes(x=name,y=performance,col=size,group=size),position="dodge2")
+# 
+
+# the first value tells you how much is explained by the fixed effects vs the second which is the total explaination---> it is mostly question dependent
+# MuMIn::r.squaredGLMM(testo)
+
+
+
+### average/sd performance gain for moving from worst to best
+# best_worst<-
+#   anoza %>% group_by(task,size) %>% summarise(
+#     best_estimation=max(performance),
+#     worst_estimation=min(performance),
+#     task=unique(task)
+# )
+# 
+# 
+# best_worst %>% group_by(task) %>% summarise(
+#     diff= best_estimation - worst_estimation
+# ) %>% ungroup() %>% summarise(mean=mean(diff), sd=sd(diff), n=n())
+# # A tibble: 1 x 3
+#    mean    sd     n
+#   <dbl> <dbl> <int>
+# 1 0.323 0.248   241
+
+## average/sd performance gain for moving from average to best
+# median_worst<-
+#   anoza %>% group_by(task,size) %>% summarise(
+#     median_estimation=median(performance),
+#     worst_estimation=min(performance),
+#     task=unique(task)
+# )
+# 
+# 
+# median_worst %>% group_by(task) %>% summarise(
+#     diff= median_estimation - worst_estimation
+# ) %>% ungroup() %>% summarise(mean=mean(diff), sd=sd(diff), n=n())
+# # A tibble: 1 x 3
+#    mean    sd     n
+#   <dbl> <dbl> <int>
+# 1 0.230 0.204   241
+
+### average/sd performance gain from quadrupling the run, keeping the same estimation algorithm
+# anoza %>% select(method,size,performance,task) %>% spread(size,performance) %>% mutate(diff=(big-small)) %>% drop_na() %>% ungroup() %>%   summarise(mean=mean(diff), sd=sd(diff), n=n())
+
+# # A tibble: 1 x 3
+#     mean median     sd
+#    <dbl>  <dbl>  <dbl>
+# 1 0.0368 0.0222 0.0733
+
+
+# ## not very helpful here but obviously tiny tiny p-value
+# t.test(anoza %>% select(method,size,performance,task) %>% spread(size,performance) %>% mutate(diff=(big-small)) %>% drop_na() %>% ungroup() %>% pull(diff),
+#        best_worst %>% group_by(task) %>% summarise(
+#            diff= best_estimation - worst_estimation
+#        ) %>% ungroup() %>% pull(diff)
+#        )
+
+# t.test(anoza %>% select(method,size,performance,task) %>% spread(size,performance) %>% mutate(diff=(big-small)) %>% drop_na() %>% ungroup() %>% pull(diff),
+#        median_worst %>% group_by(task) %>% summarise(
+#            diff= median_estimation - worst_estimation
+#        ) %>% ungroup() %>% pull(diff)
+#        )
+
+```
+
+
+## Identification failures in agent-based models {#underidentification}
+
+
+The same approach used to rank estimation algorithms can be used to diagnose whether the model can be identified at all: if all algorithms fail to achieve cross-validation performance above a threshold then the parameter cannot be identified.
+Table \@ref(tab:abmunderitification) lists how many parameters we failed to identify for each agent-based model.
+We use two performance thresholds: "serious identification failures" are parameters where the best performance among all algorithms is below 0.1 and "identification failures" when the best performance is below 0.30.
+The 0.30 threshold derives from the "scale" model, the canonical example of impossible identification, which in our tests achieves maximum performance of 0.30.
+Ten out of 21 agent-based models have at least one serious identification failure, 14 out of 21 have at least one identification failure.
+
+
+
+```{r abmunderitification}
+
+### ignore "small" versions of the problem
+ABM_sublist_largeonly<- ABM_sublist %>% discard(~str_detect(.,"_small"))
+
+left_join(performance,best,by=c("experiment","parameter")) %>%
+  filter(experiment %in% ABM_sublist_largeonly) %>% select(experiment,parameter,best) %>% distinct() %>%
+  group_by(experiment) %>%
+  summarise(parameters=n(),
+            identification_failures = sum(best<.30),
+            identification_failures_2 = sum(best<.1)) %>%
+  mutate(experiment=factor(experiment,levels=experiments_list,labels=experiment_label %>% str_remove_all("ABM 5,000")))%>%
+  knitr::kable(digits = 3, col.names = c("Agent-based Model",
+                                         "# of parameters",
+                                         "# Identification Failures",
+                                         "# Serious Identification Failures"),
+               caption = "Table showing for each agent-based model estimated, how many parameters failed to be identified (which we define here as achieving best performance below 0.30) and how many seriously so (best performance below 0.1). 10 out of 21 models have at least one serious identification failure. For each agent-based model listed here, we only consider the estimation using the highest number of training simulations and summary statistics available.",format="pandoc")
+
+
+### which parameters failed?
+# left_join(performance,best,by=c("experiment","parameter")) %>%
+#     filter(experiment %in% ABM_sublist_largeonly) %>% select(experiment,parameter,best) %>% distinct() %>%
+#   group_by(experiment) %>%
+#   filter(best<.1)
+
+
+# 
+# left_join(performance,best,by=c("experiment","parameter")) %>%
+#     filter(experiment %in% ABM_sublist_largeonly) %>% select(experiment,parameter,method,performance,best) %>% distinct() %>%
+#   group_by(experiment) %>%
+#   filter(best>.30) %>% filter(performance<.30) %>% filter(method!="average") %>%
+#   group_by(experiment,parameter) %>% summarise(n())
+```
+
+In applied work, identification failures will be more common than the table suggests for two reasons.
+First, we did not model lack of data which often reduces the quality of summary statistics. For example in the "Intra-Organizational Bandwagon" agent-based model we assumed the ability to monitor adoption thresholds for employees, something impossible in real world applications.
+Second, the thresholds for failure are somewhat arbitrary and in some applied work we may require higher performance for estimation to be useful.  
+
+Because identification failure has many causes, one needs to look at each model to diagnose its source.
+Sometimes, we fail to estimate multiple parameters because they govern the same behaviour in ways that make them hard to separate: fertility in the Anasazi model depends on both a base fertility rate and maximum fertile age and it is hard to disentangle the two by just looking at aggregate population dynamics.
+Sometimes, we fail to estimate parameters because their original bounds are small enough that their effects are muted: in the COVID agent-based model the parameter controlling what percentage of the population wears N95 masks varies between 0 and 5% and on its own this has no appreciable effect to the overall aggregate behaviour of the contagion.
+Sometimes a parameter is dominated by others: in the Ebola model the parameter describing the ability to trace cases cannot be identified because two other parameters (the effectiveness of the serum and the delay with which it is administered) matter far more to the overall aggregate dynamic.
+Sometimes parameters just do not have much of an impact to the model, as for example the overall standard deviation of catchability in the FishMob agent-based model.
+
+Understanding the nature of identification failures helps us find ways to overcome them or judge whether it is a problem at all.
+Disentangling multiple parameters that govern the same behaviour can be done by collecting new kinds of data or simplifying the model.
+Low performance of parameters with very narrow ranges is a signal of unreasonable accuracy requirements (or alternatively, low power of the data).
+The low performance of dominated parameters has valuable policy implications since it shows some dynamics to be less important than others to control.
+
+
+The main inconvenience with testing for identification is that we need to test the performance of many estimation algorithms before being confident of the diagnosis.
+When one algorithm achieves low performance, it may be the algorithm's fault rather than the model's.
+Only when all algorithms achieve low performance we may be more confident about the model being not identifiable.
+If our threshold for identifiability is 0.30, the smallest set of algorithms that finds all the identifiable parameters for all the examples in the paper is of size 4: random forest, GAM, neural network ABC and local-linear ABC.  
+However it is probable that with more examples we would expose at least one case where identification is achieved exclusively with another algorithm.
+In short, a good identification test will require us to test as many estimation algorithms as possible.
+
+```{r}
+### GAM AND RF enough for ABMS
+### GAM + RF + SABC4 + LOCLIN needed for full certainty
+
+# left_join(
+#   performance %>% select(-average) %>% complete(nesting(experiment,parameter),method,fill = list(value=NA,performance=0))
+#   ,best,by=c("experiment","parameter")) %>% 
+#   select(experiment,parameter,method,performance,best) %>% distinct() %>%
+#     group_by(experiment) %>%
+#     filter(best>.30) %>% filter(is.na(performance) | performance<.30) %>% filter(method!="average") %>%
+#     group_by(experiment,parameter,method) %>% summarise(count=n()) %>% spread(method,count,fill=0)  -> failure_method_table
+# 
+# methods<-performance %>% filter(method!="average") %>% pull(method) %>% unique()
+# 
+# ##2 by 2
+# check_number_of_failures<-function(method1,method2){
+#   sum(pmin(failure_method_table %>% pull(method1),
+#            failure_method_table %>% pull(method2)))
+# }
+# 
+# 
+# twod<-
+#   expand.grid(methods,methods) %>%
+#   filter(Var1!=Var2) %>%
+#   rowwise() %>%
+#   mutate(failures = check_number_of_failures(Var1,Var2))
+#   
+# 
+# check_number_of_failures<-function(method1,method2,method3){
+#   sum(pmin(failure_method_table %>% pull(method1),
+#            failure_method_table %>% pull(method2),
+#            failure_method_table %>% pull(method3)))
+# }
+# 
+# 
+# threed<-
+#   expand.grid(methods,methods,methods) %>%
+#   filter(Var1!=Var2, Var1!=Var3, Var2!=Var3) %>%
+#   rowwise() %>%
+#   mutate(failures = check_number_of_failures(Var1,Var2,Var3))
+# 
+# threed %>% arrange(failures)
+
+## turns out you need to do four!
+#failure_method_table %>% filter(rfboot==1,loess==1)
+
+```
+
+
+## Coverage
+
+To test the quality of the confidence intervals, table \@ref(tab:coveragetable) shows how often the real testing parameter is within the confidence intervals estimated by each algorithm.
+Two methods that achieved low point prediction performance, rejection ABC and linear regression, achieve best coverage rates for 35% of the parameters.
+This underscores how even when point prediction is difficult, a good estimation algorithm will produce confidence intervals that contain the real parameters with the pre-specified confidence level.
+Linear regressions have the lowest mean and median coverage error while regression-adjusted ABCs tend to produce too narrow confidence intervals.
+
+
+```{r coveragetable}
+## who's best in terms of confidence intervals
+## you can try what happens if you ignore ABMs if you do
+
+bests<-
+  coverage_table %>% group_by(experiment,parameter) %>%
+  mutate(coverage_error = abs(value-.95)) %>%
+  filter(coverage_error==min(coverage_error)) %>%
+  group_by(method) %>%
+  summarise(times_best=n())
+
+mistakes<-
+  coverage_table %>% group_by(method) %>% mutate(mistake = value<.8,
+                                                 serious = value<.6) %>%
+  summarise(mistake = sum(mistake),
+            serious= sum(serious))
+
+
+## what about the median coverage?
+median_coverage<-
+  coverage_table %>% group_by(method)  %>%
+  mutate(coverage_error = abs(value-.95)) %>%
+  summarise(median = median(coverage_error),
+            mean = mean(coverage_error)
+  ) 
+
+left_join(bests,
+          median_coverage) %>% left_join(mistakes) %>%
+  filter(method!="average") %>%
+  mutate(method=factor(method,levels = methods_used,
+                       labels = names(methods_used))) %>%
+  ungroup() %>%
+  arrange(method) %>%  
+  knitr::kable(
+    col.names=c("Algorithm","# of times most accurate","Median Coverage Error",
+                "Mean Coverage Error", "# coverage below 80%",
+                "# coverage below 60%"),digits=4,
+    caption = "Table showing for each algorithm median and average coverage error: the absolute difference between 95% and the proportion of parameters actually falling within the algorithm's stated 95% confidence interval (out of sample). The lower the error the more precise the algorithm. For each algorithm we also list the number of parameters for which the stated coverage was the most accurate out of sample compared to the other algorithms. Finally we list how many times the algorithm produces deceptively small confidence intervals (that is, that cover only 80% or 60% of the parameter in the testing set)",format="pandoc"
+  )
+
+
+# 
+# pareto<-left_join(median_coverage,median_performance)
+# ggplot(
+#   pareto,aes(x=-coverage_error,y=performance)
+# ) +
+#   geom_point()  +
+#   geom_text(aes(label=method),hjust=0,vjust=0)
+
+```
+
+
+When a parameter is unidentifiable most algorithms return very wide confidence intervals.
+This is a useful feature that warns the user about the poor point estimation quality.
+Observing confidence intervals is however not a good substitute for a full cross-validation test.
+This is because, as we show in table \@ref(tab:coveragetable), it is possible for the confidence intervals to be too small, covering only 80% or even 60% of the true parameters.
+In other words sometimes estimation algorithms are mistakenly confident about their accuracy and we need a cross-validation coverage test to verify.
+Perversely coverage errors are more likely with algorithms that achieved high estimation performance (random forests, GAMs and neural networks).
+
+
+
+# Discussion
+
+
+## A simple identification testing protocol even if we are not interested in estimation
+
+In this paper we argued that cross-validation testing is useful to rank estimation algorithms.
+There are however many models where estimation is not a major concern.
+Models focusing on theoretical exposition, illustration or description [to use @Edmonds2019 definitions] are not concerned with the true value of any specific parameter.
+We argue however that testing ought to be done even under these circumstances to notice identification issues.
+
+Identification represents an important feature of the model: whether it can be fit to data at all.
+We claim that uncovering identification is of the same importance as sensitivity analysis and the two procedures mutually reinforce one another.
+An un-identifiable parameter must be tested during sensitivity analysis over a large range, since data will never narrow its value down.
+Viceversa finding during sensitivity analysis that a model output is insensitive to a parameter provides an important clue to explain identification issues.
+Performing only sensitivity analysis and preferring models that are less sensitive creates a bias that leads us to prefer less identifiable models
+
+Ideally we would like to test for identification without ever running new simulations.
+We can do this with reference-table methods by recycling the runs used for global sensitivity analysis [@Ligmann-Zielinska2020; @Magliocca2018; @TenBroeke2016a].
+Given the results from section \@ref(underidentification), we suggest at least looking at the performance of random forests, GAMs, neural network ABC and local-linear regression ABC. If performance is below 0.30 for all, we can be relatively confident that the parameter is not identifiable.
+
+## We worry too much about efficiency and too little about testing 
+
+Many recent developments in estimation of simulations have focused on efficient search[see the various algorithms featured in @Cranmer2019 review of the "frontier" of simulation-inference].
+While we welcome higher estimation efficiency, we think this objective is often pursued  at the expense of testing efficiency.
+
+
+The pursuit of estimation efficiency can be explained by the desire to build complicated models that run slowly but can still fit to data.
+The more efficient the estimation algorithm, the bigger our model can get and still be estimated in a given computational budget.
+Here however we highlighted the trade-off between estimation and testing efficiency. 
+Recognizing that faster estimation comes at the price of slower testing, there is again an incentive to focus on the kind of simpler agent-based models advocated, for example, in @miller_complex_2007.
+
+We are not claiming that search-based estimation algorithms should not be used.
+Given how context-dependent performance is there must be many agent-based models that will be better estimated by search-based algorithms.
+Our argument is that even when using a search-based algorithm we should perform a cross-validation test using reference-table methods first, take notice of the unidentified parameters and discount the value that search-based algorithms assign to them.
+
+
+## Estimation testing is not validation
+
+The idea of cross-validation testing as a way to judge estimation accuracy, as well as the older statistical convergence literature it tries to replace, is premised on a lie: the existence of the mythical "real" parameters.
+The "real" parameters are the parameters of the "real" model that generated the data we observe. 
+In other words, during estimation and cross-validation we are forced to assume our model to be true when we know it to be false.
+This is what @Gelman2012 calls "methodological fiction".
+
+@Gelman2012 goes on to stress that the question is not whether the model is true, but whether it is close enough to be useful.
+Establishing whether the model is "good enough" is the process of validation.
+The cross-validation tests we are advocating for here are not a validation tool but are instead part of the estimation procedure that precedes validation.
+Once we have an estimated model, we can test its validity through, for example, out of sample predictions or qualitative responses to shocks in ways experts find believable.
+
+
+
+
+## Conclusion
+
+
+This paper provides two key results.
+First, if we are concerned primarily with the quality of point estimates, there is no substitute for trying multiple algorithms and ranking them by cross-validation.
+GAM and random forests provide a good starting point.
+Second, identification failure is common in agent-based models but can be spotted with the same cross-validation tests.
+
+We know of no agent-based model that used cross-validation to choose how to estimate its parameters [with the exception of the comparison between ABC MCMC and simulated minimum distance in @Grazzini2017].
+The common approach seems to be to pick one estimation algorithm and apply it.
+We have proven here that this is sub-optimal: no estimation algorithm seems to be a priori better than the others.
+
+We should give up on the hope that a large enough literature survey will uncover the single best estimation algorithm to use.
+Testing estimation algorithms is computationally expensive and we would have preferred such a result.
+Unfortunately we show here that performance is context dependent and there is no alternative to test methods for each agent-based model.
+
+Papers proposing  new estimation algorithms tend to showcase their approach against one or two examples.
+It would help the literature to have a larger, standardized set of experiments to gauge any newcomer.
+We hope this paper and its code repository to be a first step.
+However it may be impossible to find an estimation algorithm that is always best and we should prioritize methods for which cross-validation can be done without having to run more simulations.
+
+The no free lunch theorem[@Wolpert1995] argues that when averaging over the universe of all search problems all optimization algorithms (including random search) perform equally.
+A supervised learning version of the same [@Wolpert2011] suggests that "on average" all learning algorithms and heuristics are equivalent.
+These are deeply theoretical results whose practical applications are limited: nobody has ever suggested abandoning cross-validation because of it, for example.
+However, some weak form of it seems to hold empirically for simulation inference: for each estimation algorithm there is a simulation parameter for which it does best.
+
+
+
+
+
+# Appendix {-}
+
+
+
+## Experiment Descriptions
+
+
+
+
+### Simple simulations
+
+We compute performance and coverage for all the experiments in this section by 5-fold cross-validation: keeping one fifth of the data out of sample, using the remaining portion to train our algorithms and doing this five times, rotating each time the portion of data used for testing.
+We run all the experiments in this section twice: once the total data is 1,250 simulation runs  and once it is 5,000 simulation runs
+
+*$\alpha$-stable*: @Rubio2013 uses ABC to recover the parameters of an $\alpha$-stable distribution by looking at sample of 1096 independent observations from it. We replicate this here using the original priors for the three parameters ($\alpha \sim U(1,2)$, $\mu \sim U(-0.1,0.1)$, $\sigma \sim U(0.0035,0.0125)$). We use 11 summary statistics representing the 0%,10%,$\dots$,100% deciles of each sample generated.
+
+*$g$-and-$k$ distribution*: @Karabatsos2017 uses ABC to estimate the parameters of the g-and-k distribution (an extension of the normal distribution whose density function has no analytical expression). We replicate this here using the `gk` package in R [@Prangle2017].
+We want to retrieve the 4 parameters of the distribution $A,B,g,k \sim U[0,10]$ given the 11 deciles (0%,10%,...,100%) of a sample of 1,000 observations from that distribution.
+
+*Normal 25*: Sometimes sufficient summary statistics exist but the modeller may miss them and use others of lower quality.
+In this example 25 i.i.d observations from the same normal distribution $\sim N(\mu,\sigma^2)| \mu \sim U(-5,5); \sigma \sim U(1,10)$ are used directly as summary statistics to retrieve the two distribution parameters $\mu,\sigma^2$.
+
+*Moving Average(2)*: @Creel2017 used neural networks to recover the parameters of the MA(2) process with $\beta_1 \sim U(-2,2); \beta_2\sim U(-1,1)$. We generated a time series of size 100 and we summarise it with the coefficients a AR(10) regression.
+
+*Median and MAD*:  As a simple experiment we sample 100 observations from a normal distribution $\mu \sim U(-5,5)$ and $\sigma \sim U(0.1,10)$ and we collect as summary statistics their median and median absolute deviation, using them to retrieve the original distributions. 
+We run this experiment twice, the second time adding two useless summary statistics $S_3 \sim N(3,1)$ and $S_4 \sim N(100,.01)$.
+
+*$\mu$-$\sigma^2$*: The `abc` package in R [@Csillery2012] provides a simple dataset example connecting two observed statistics: "mean"" and "variance" as" generated by the parameters $\mu$ and $\sigma^2$. The posterior that connects the two derives from the Iris setosa observation [@Anderson1935].
+The data set contains 10,000 observations and we log-transform $\sigma^2$ when estimating.
+
+*Toy Model*:  A simple toy model suggested by the `EasyABC` R package[@Jabot2013]  involves retrieving two parameters, $a \sim U[0,1]; b \sim U[1,2]$, observing two summary statistics $S_1 = a + b + \epsilon_1 ; S_2 = a b +\epsilon_2 | \epsilon_1,\epsilon_2 \sim N(0,.1^2)$.
+
+
+*Ecological Traits*: The `EasyABC` R package[@Jabot2013] provides a replication of @Jabot2010, a trait-based ecological simulator. Here we fix the number of individuals to 500 and the number of traits to 1, leaving four free parameters: $I \sim U(3,5),A\sim U(0.1,5),h\sim U(-25,125),\sigma\sim U(0.5,25)$. We want to estimate these with four summary statistics: richness of community $S$, shannon index $H$, mean and skewness of traiv values in the community.
+
+
+*Wilkinson*: @wilkinsonnips suggested a simple toy model with one parameter, $\theta \sim U(-10,10)$, and one summary statistic $S_1 \sim N(2 (\theta + 2) \theta(\theta-2), 0.1 + \theta^2)$.
+We run this experiment twice, once where the total data is 1,250 sets of summary statistics and one where the total data is 5,000 sets of summary statistics.
+
+### Ill-posed Models
+
+
+As with simple simulations, we test all the experiments with 5-fold cross validation and run each twice: once where the total reference table has 1,250 total rows, and once where it has 5,000.
+
+
+
+*Broken Line*:  we observe 10 summary statistics $S=(S_0,\dots,S_9)$ generated by: 
+$$
+S_i=\left\{\begin{matrix}
+\epsilon & i < 5\\ 
+\beta i + \epsilon & i\geq5
+\end{matrix}\right. (\#eq:brokenline)  
+$$ 
+and where $\beta \sim U(0,2)$
+
+*Hierarchical Normal Mean*: @MarixnArxiv compares ABC to direct random forest estimation in a "toy" hierarchical normal mean model:
+$$
+\left.\begin{matrix}
+y_i |\theta_1,\theta_2 \sim N(\theta_1,\theta_2) \\ 
+\theta_1|\theta_2 \sim N(0,\theta_2) \\ 
+\theta_2 \sim IG(\kappa,\lambda)
+\end{matrix}\right. (\#eq:hierarchicalnormalmean)  
+$$ 
+Where $IG(\cdot)$ is the inverse gamma distribution. We want to estimate $\theta_1,\theta_2$ given a sampled vecor $y$ of size 10 which is described by 61 summary statistics: the mean, the variance, the median absolute deviation of the sample, all possible combinations of their products and sums as well as 50 noise summary statistics $\sim U(0,1)$.
+
+*Locally Identifiable*: macroeconomics often deals with structural models that are only locally identifiable [see @Fernandez-Villaverde2015]. These are models where the true parameter is only present in the data for some of its possible values. Here we use the example:
+$$
+S_i=\left\{\begin{matrix}
+y \sim N(\theta_1,\theta_2) & \theta_1>2, \theta_2>2\\ 
+y \sim N(0,1)  &  \text{Otherwise}
+\end{matrix}\right. (\#eq:local)  
+$$ 
+Where $\theta_1,\theta_2 \sim U[0.1,5]$, each simulation we sample the vector $y$ of size 100 and we collect its mean and standard deviation as summary statistics.
+
+*Scale*: a common source of identification failure in economics occurs when "when two structural parameters enter the objective function only proportionally, making them separately unrecoverable"[@Canova2005].
+In this example, two people of weight $w_1,w_2\sim U[80,150]$ step together on a scale whose reading $S_1 = w_1 + w_2 + \epsilon | \epsilon \sim N(0,1)$ is the only summary statistic we can use.
+This problem is locally identifiable to an extent: very low readings means both people are light (and viceversa).
+
+*Unidentifiable*:  in some cases the model parameters are just unrecoverable and we hope that our estimation algorithm does not tell us otherwise.
+In this example the three summary statistics $S_1,S_2,S_3 \sim N(x,1)| x \sim U[0,50]$ provide no information regarding the two parameters we are interested in: $\mu\sim U(0,50), \sigma \sim U(0,25)$.
+
+*Partially Identifiable*: @Fernandez-Villaverde2015 mention how partial identification can occur when a model is the real data generating process conditional on some other unobserved parameter. This makes the model identifiable in some samples but not others. The example we use is a slight modification of the original: we try to retrieve parameter $\theta \sim U[1,5]$ when we observe mean and standard deviation of a size 10 vector $y$ generated as follows:
+$$
+y \sim N(\theta\cdot x,1), ~
+x=\left\{\begin{matrix}
+0 & \text{with probability } \frac 1 2\\ 
+\sim N(1,1)  &  \text{Otherwise}
+\end{matrix}\right. (\#eq:partial)  
+$$ 
+
+### Complicated Models
+
+
+
+*Birds ABM*: @Thiele2014 estimated the parameters of a simple agent-based bird population model [originally in @Railsback2011] with ABC. Their paper provided an open source NETLOGO implementation of the model. The model depends on two parameters: `scout-prob`$\sim U[0,0.5]$ and `survival-prob`$\sim U[0.95,1]$. We ran this experiment twice, once where there are only 2 summary statistics: mean abundance and mean variation over 20 years, and one where are 105 (comprising the average, last value, standard deviation, range and the coefficients of fitting an AR(5) regression to the time series of abundance, variation, months spent foraging and average age within bird population). 
+This experiment is useful because in the original specification (with 2 summary statistics) the `scout-prob` parameter is unidentifiable.
+For each experiment we ran the model 5000 times.
+
+
+*Coalescence*: the `abctools` package [@Nunes2015] provides 100,000 observations of 7 summary statistics from a DNA coalescent model depending on two parameters $\theta \sim u[2,10]$ and $\rho \sim U[0,10]$. @Blum2013 in particular used this dataset to compare the quality of ABC dimensionality reduction schemes to better estimate the two parameters.
+This data-set is too big for cross-validation so in this experiment we simply used 1,250 observation as the testing data-set and the rest for training.
+
+
+
+*Lotka-Volterra*: @Toni2009 showcases SMC-ABC with a 2 species deterministic Lotke-Volterra model with 2 parameters: $a,b$.
+$$
+\left\{\begin{matrix}
+\frac{dx}{dt} = ax - yx \\ 
+\frac{dy}{dt} = bxy - y  
+\end{matrix}\right.
+$$ 
+Here we assume $a,b \sim U(0,10)$ (avoiding the negative values in the original paper).  For each simulation we sample 8 observations for predator and prey at time $t=1,1.2, 2.4, 3.9, 5.7, 7.5, 9.6, 11.9, 14.5$ (as in the original paper). 
+We run this experiment twice, once where data is observed perfectly and one where to each observation we add noise $\sim N(0,0.5)$.
+In both experiments we do not perform 5-fold cross validation, rather we generate 100,000 sets of summary statistics for training and another 1,250 sets of summary statistics to test the parametrization.
+
+
+*Real Business Cycle*: we want to parametrize the default Real Business Cycle model (a simple but outdated class of macro-economics models) implemented in the `gEcon` R package[@Klima2018].
+It has 6 parameters ($\beta,\delta,\eta,\mu,\phi,\sigma$) and we try to parametrize them in two separate experiments.
+In the first, we use as summary statistics the -10,+10 cross-correlation table between output $Y$, consumption $C$, investment $I$, interest rates $r$ and employment $L$ (44 summary statistics in total). For this experiment we have 2,944 distinct observations.
+In the second experiment we follow @Carrella2018 using as summary statistics (i) coefficients of regressing $Y$ on $Y_{t-1},I_{t},I_{t-1}$, (ii) coefficients of regressing $Y$ on $Y_{t-1},C_{t},C_{t-1}$, (iii)  coefficients of regressing $Y$ on $Y_{t-1},r_{t},r_{t-1}$, (iv) coefficients of regressing $Y$ on $Y_{t-1},L_{t},L_{t-1}$, (v) coefficients of regressing $Y$ on $C,r$ (vi) coefficients of fitting AR(5) on $Y$, (vii)  the (lower triangular) covariance matrix of $Y,I,C,r,L$. 48 summary statistics in total. For this experiment we have 2,961 distinct observations.
+
+*Pathogen*: another dataset used by  @Blum2013 to test dimensionality reduction methods for ABC concerns the ability to predict pathogens' fitness changes due to antibiotic resistance [the original model and data is from @Francis2009]. The model has four free parameters and 11 summary statistics.
+While the original data-set contains 1,000,000 separate observations, we only sample 200,000 at random for training the algorithms and 1,250 more for testing.
+
+*Earthworm*: @VanderVaart2015 calibrated an agent-based model of earthworms with rejection ABC. The simplified version of the model contains 11 parameters and 160 summary statistics. The original paper already carried out cross-validation proving some parameters to be unidentifiable: the model contains a mixture of unidentified, weakly identified and well identified parameters.
+We use 100,000 runs from the original paper, setting 1,250 aside for out of sample testing and using the rest for training.
+
+### COMSES Agent-based models
+
+Strictly speaking, agent-based models are just another kind of complicated simulation.
+Agent-based models tend to be slow to run, contain many moving parts and interacting components and they tend to produce many summary statistics as they picture the evolution of systems along many dimensions.
+The agent-based models we describe here are all Netlogo models available at the COMSES computational model library[@Rollins2013] and we tried sampling across disciplines.
+
+* *Anasazi*: This simulation follows @Janssen2009a replication of the famous Kayenta Anasazi agent-based model[@Axtell2002]. We vary four parameters: `harvestAdjustment`, a productivity variable, `harvestVariance`, the variance of the productivity, as well as `Fertility`, representing the fertility rate and `FertilityEndsAge` which represents the maximum fertile age for the population.
+The first three parameters have uniform priors $\in [0.1,0.9]$ while the last parameter is uniform between 25 and 37.
+We only look at one time series: the total number of households. We generate summary statistics on this time series by looking at its value every 25 time steps as well as its maximum, minimum, average, standard deviation and trend. We run each simulation for 550 steps.
+
+* *Bottom-up Adaptive Macroeconomics*: we use @Platas-Lopez2019 implementation of the  BAM [@gatti2011macroeconomics] and we vary eight parameters: `wages-shock-xi` $\sim U[0.01,0.5]$, controlling wage shocks due to vacancies, `interest-shock-phi`$\sim U[0.01,0.5]$, controlling interest shocks due to contracting, 
+`price-shock-eta`$\sim U[0.01,0.5]$, parameter exploring price setting,
+`production-shock-rho`$\sim U[0.01,0.5]$, parameter exploring production setting,
+`v`$\sim U[0.05,1]$, capital requirements coefficient,
+`beta`$\sim U[0.05,1]$, preference for smoothing consumption, 
+`dividends-delta`$\sim U[0.01,0.5]$, fraction of profits returned as dividends, 
+`size-replacing-firms`$\sim U[0.05,0.5]$, parameter governing inertia in replacing bankrupt firms. We look at 9 time series: unemployment rate, inflation, net worth of firms, production, wealth of workers, leftover inventory, CPI index, real gdp and total household consumption. We turn these time series into summary statistics by looking at their value every 25 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 400 steps with 100 steps of spinup (where data is not collected).
+
+* *Intra-Organizational Bandwagon*: @Secchi2016  simulates the adopton of innovation within an organization depending on tolerance to bandwagons. We vary two variables: `vicinity`$\sim U[2,50]$ representing the size of the space workers are aware of when thinking about jumping on a bandwagon and `K` $\sim U[0.1,0.9]$ representing the ease with which imitation occurs.
+We follow four time series: the number of adopters, the mean threshold for adoption, its standard deviation and the maximum threshold in the organization. We turn these time series into summary statistics by looking at their value every 50 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 250 steps.
+
+* *Governing the Commons*: an example of socio-ecological system from an introductory textbook[@Janssen2020]. A landscape of logistic-growth patches are harvested by agents who can imitate each other's threshold for action. We modify four parameters: `discount`$\sim U[0.9,1]$, the discount rate in each agent's utility,`costpunish`$\sim U[0,0,1]$, the percentage of wealth lost by agents monitoring others,`costpunished`$\sim U[0,0.2]$, the percentage of wealth lost by agents caught having too much welath and `percent-best-land`$\sim U[5,25]$ which determines carrying capacity. We track four time series: average unharvested resource remaining, average wealth of the turtles and average threshold before harvesting. We turn these time series into summary statistics by looking at their value every 50 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 500 steps.
+
+* *COVID-19 Masks*: @Brearcliffe2020 is a simple epidemiological model where randomly moving agents progress through a COVID-19 SIR model with only masks to slow down the spread. We modify four parameters `infectiousness`$\sim U[80,99]$, representing how easily the disease spread on contact and three parameters representing the availability of masks of different forms: `masks-n95`$\sim U[0,5]$,`masks-medical`$\sim U[0,30]$,`masks-homemade`$\sim U[0,65]$.
+We track three time series: number of exposed, recovered and infected agents. We turn these time series into summary statistics by looking at their value every 25 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 400 steps.
+
+* *Ebola Policy*: @Kurahashi2016 replicated and enhanced the original smallpox agent-based model in @Epstein2012 by adding public transportation and Ebola-specific treatment strategies. We modify three parameters: `trace-delay`$\sim U[1,10]$, days it takes to run an epidemiological trace for an infected individual, `trace-rate`$\sim U[0.3,0.7]$, the probability of tracing each individual correctly, `serum-effect`$\sim U[0,1]$ which represents the ability of the serum to inoculate the patient. We track three time series: number of infections, recoveries and deaths. We turn these time series into summary statistics by looking at their value every 25 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 500 steps.
+
+* *FishMob*: a socio-economic model introduced in @Lindkvist2020. FishMob involves four fishing areas and a diverse set of fleets moving and adapting to resource consumption. We vary five parameters: `share.mobile`$\sim U[.01,1]$ representing the percentage of fishers that can change port, `profitmax-vs-satisficers`$\sim U[0,1]$ the percentage of fishers that maximize profits (the remaining population acting like satisficers), `intr_growthrate`$\sim U[0.1,0.8]$ representing the average growth rate of the stock, `globalcatchabilitySD`$\sim U[0,0.5]$ representing the standard deviation in catchability across regions and `min-viable-share-of-K`$\sim U[0.05,1]$ which represents the depletion level below which biomass defaults to 0. We observe eight time series: the exploitation index and total biomass in each of the four region. We turn these time series into summary statistics by looking at their value every 25 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 200 steps.
+
+* *Ger Grouper*: a model of human adaptation to the mutable environment of northern Mongolia[@Clark2015]. We vary four parameters: `gerreproduce`$\sim U[1,5]$ which represents the probability each step of a household with enough energy to reproduce, `patch-variability`$\sim U[1,100]$ which is the probability per time step of any grassland to turn to bare, `ger-gain-from-food`$\sim U[2,20]$ which represents the harvest to energy transformation ratio, and `grass-regrowth-time`$\sim U[1,10]$ which controls the regrowth of the resource. We observe five time series: total population and population of each of the four "lineages"(subpopulations that share the same cooperation rate). We turn these time series into summary statistics by looking at their value every 50 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 200 steps.
+
+* *Two-factor Theory*: @Iasiello2020 agentizes the interaction between motivation and environment hygene in a human resources management model. The model depends on four parameters `motivation-consistent-change-amount`, `tolerance-consistent-change-amount`, `hygiene-consistent-change-amount`, `potential-consistent-change-amount` all $\sim U[-1,1]$ which govern the changes in motivation styles or hygene factor whenever there is a mismatch between satisfaction and dissatisfaction. We monitor three time series: the number of dissatisfied workers, the number of workers that moved and the number of new workers.  We turn these time series into summary statistics by looking at their value every 100 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 1000 steps.
+
+* *Insulation Activity*: a model of homeowners adoption of energy efficiency improvements responding to both economic and non-economic motivations[@Friege2016]. We vary four parameters: `radius`$\sim U[0,10]$, representing the spatial range over which homeowners compare their neighbors, `av-att`$\sim U[-1,1]$ the overall trend in general propensity to adopt insulation, `weight-soc-ben`$\sim U[0,10]$ a scaling factor increasing the importance of positive information, `fin-con`$\sim U[0,10]$ an inertia factor slowing down insulation adoption due to financial constraints. We observe five time series: average age of windows, average age of roofs, total and average energy efficiency rates and average heating efficiency rates. We turn these time series into summary statistics by looking at their value every 25 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 100 steps.
+
+* *Peer Review Game*: @Bianchi2018 simulates a set of incentive and motivation structures that generates papers, citations and differing levels of scientific quality. In this paper we focus on "collaborative and fair" decision making where agents increase effort whenever they think their paper deserve the fate it received (high quality lead to acceptance, low quality leads to rejection).
+We vary five parameters: `effort-change`$\sim U[0,.2]$ representing how much authors adapt whenever a paper is peer-reviewed, `overestimation`$\sim U[0,.5]$ representing the bias authors have in evaluating their own paper, `top`$\sim U[1,40]$ represents the number of best papers that make up the "top quality" publication list, `published-proportion` $\sim U[.01,1]$ represents the percentage of authors that publish in a given time step, `researcher-time`$\sim U[1,200]$ is the budget of time available to each agent. We track six time series: evaluation bias, productivity loss, publication quality, quality of top publications, gini coefficient for publications and reviewing expenses. We turn these time series into summary statistics by looking at their value every 25 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 200 steps.
+
+* *Office Moves*: @Dugger2020 simulates the interaction between three kinds of employees (workers, shirkers and posers). We vary three parameters, `%_workers`$\sim U[2,48]$ the percentage of employees that are workers, `%_shirkers`$\sim U[2,48]$ the percentage of employees that are shirkers, and  `window`$\sim U[2,10]$ which represents the moving average smoothing factor of average performace that employees compare themselves to. We track four time series: percentage of happy employees, percentage of happy workers, percentage of happy shirkers and average performance. We turn these time series into summary statistics by looking at their value every 25 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 100 steps.
+
+* *Multilevel Selection*: @Sotnik2019 models a commons problem where agents may cooperate and share some of the benefits of higher value areas.  We vary four parameters: `initial-percent-of-contributors`$\sim U[10,80]$ representing the number of cooperating agents at the start of the simulation, `resource-size`$\sim U[0.1,2]$ which represents the size of resource shared by cooperating agents, `multiplier-effect`$\sim U[1,5]$ scales personal contribution when valued by the common, `social-pressure-vision`$\sim U[1,5]$ which governs how close agents need to be to force one another to contribute.
+We track five time series: difference between between-group and within-group selections, the average payoff, the percentage of non-contributors, percentage of people that were pressured and assortativity among contributors. We turn these time series into summary statistics by looking at their value every 25 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 100 steps.
+
+* *NIER*: @boria_2020 is a thesis that deals with efficiency upgrades and the distribution of transition costs across income groups. We vary four parameters: `%_EEv_upgrade_at_NR`$\sim U[0.01, 0.5]$ efficiency gain due to retrofit, `diminishing_returns_curve`$\sim U[1, 10]$ is a slope of a function reducing retrofit efficiency when done at already efficient houses, `%-Leaders`$\sim U[1, 50]$ is the percentage of agents that try to convince others to upgrade, `%-Stigma-avoiders`$\sim U[1, 50]$ is the percentage of population that does not want to be the minority.
+We track ten time series: the number of households belonging to each quartile of the energy efficiency distribution both within and outside of the simulated district as well as the mean and standard deviation of energy efficiency within the district. We turn these time series into summary statistics by their maximum, minimum, average, standard deviation and trend. We run each simulation for 100 steps.
+
+* *RiskNet*: @Will2020 is a model of risk-sharing and insurance decision for stylized smallholders. We vary four parameters: `shock_prob`$\sim U[0.01,0.5]$ the per-step probability of an adverse shock, `covariate-shock-prob-hh`$\sim U[0.5,1]$ which correlates village-level shocks with households, `shock-intensity`$\sim U[0,1]$ percentage of sum insured that is part of the insurance payout, `insurance-coverage`$\sim U[0,1]$ which shows the initial insurance coverage rate. We track five time series: gini coefficient, budget for all households, budget for uninsured households, fraction of active holseholds and fraction of uninsured active households.   We turn these time series into summary statistics by looking at their value every 25 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 100 steps.
+
+* *Standing Ovation* The standing ovation problem, originally introduced in @Miller2004 but here using a netlogo version by @Izquierdo2008, a simple problem where spectators have to synchronously choose whether to clap standing or stay seated at the end of a performance. We vary three parameters: `intrinsic-prob-standing`$\sim U[0.1,0.9]$ which represents the original probability of a spectator to stand,`noise` $\sim U[0,0.1]$ which represents the probability of a spectator randomly changing their stance and `cone-length`$\sim U[1,5]$ which represents the cone of vision the agent has to imitate other spectators. We track two time series: number of agents standing and number of agents feeling awkward. We turn these time series into summary statistics by looking at their value every 10 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 50 steps.
+
+* *Schelling-Sakoda Extended*: @Flache2021 implemented a 4-populations netlogo version of the famous Schelling-Sakoda segregation model [@Schelling1971; @Sakoda1971; @Hegselmann2017].We vary three parameters: `density`$\sim U[50,90]$ representing the percentage of area that is already occupied by a hose, `%-similar-wanted`$\sim U[25,75]$ representing the percentage of people of the same population required by any agent to prevent them from moving and `radiusNeighborhood`$\sim U[1,5]$ which determines the size of the neighborhood agents look at when looking for similiarity.
+We track seven time series: percentage of unhappy agents, unhappy red and unhappy blue agents; percentage of similar agents in any neighborhood as awell as this percentage computed for red and blue agents; percentage of "clustering" for red agents.
+We turn these time series into summary statistics by looking at their value every 50 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 300 steps.
+
+* *Sugarscape*: @Janssen2020 replicates the famous sugarscape model[@Epstein1996] (restoring the trade functionality that the netlogo model library do not have). We vary five parameters: `initial-population`$\sim U[100,500]$ the number of initial agents, `pmut`$\sim U[0,0.2]$ the probability of mutating vision on reproduction, `maximum-sugar-endowment`$\sim U[6,80]$ and `maximum-spice-endowment`$\sim U[6,80]$ the amount of initial resources available and `wealth-reproduction`$\sim U[20,100]$ the amount of resources needed to spawn a new agent. We track six time series: the number of agents, the gini coefficient in wealth, the total amount of sugar and spice that can be harvested, the total number of trades and the average price. We turn these time series into summary statistics by looking at their value every 25 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 500 steps.
+
+* *Food Supply Chain*: @VanVoorn2020 presents a model of a food supply network where higher efficiency is achieved only by lowering resilience to shocks. We vary five parameters: `TotalProduction`$\sim U[100,200]$ and `TotalDemand`$\sim U[50,200]$ the total available source and sinks in the network, `StockPersistence`$\sim U[.5,.99]$ represents spoilage rate per time step, `base-preference`$\sim U[.01,.2]$ represents a normalizing factor in customer preferences for each trader and `exp-pref`$\sim U[1,100]$ which governs customers inertia into changing suppliers.
+We track nine time series: the inventory of the three traders, total produced, total consumed, and maximum, minimum, mean and standard deviation of consumer health. We turn these time series into summary statistics by looking at their value every 15 time steps as well as their maximum, minimum, average, standard deviation and trend. We spinup the model for 40 time steps, then we run the model to a stationary, a shock and another stationary phase, each 20 time steps long.
+
+* *Wolf Sheep Predation*: a model from the NETLOGO library [@Wilensky2006], this agentizes a three species (grass, sheep and wolves) Lotka-Volterra differential equation system.  We vary seven parameters: `grass-regrowth-time`$\sim U[1, 100]$, `initial-number-sheep`$\sim U[1, 250]$,  `initial-number-wolves`$\sim U[1, 250]$, `sheep-gain-from-food`$\sim U[1, 50]$, `wolf-gain-from-food`$\sim U[1, 100]$, `sheep-reproduce`$\sim U[1, 20]$ and `wolf-reproduce`$\sim U[1, 20]$. We track three time series: total number of sheep, total number of wolves and total grass biomass available. We turn these time series into summary statistics by looking at their value every 50 time steps as well as their maximum, minimum, average, standard deviation and trend. We run each simulation for 200 steps.
+
+
+
+
+
+
+
+```{r}
+class_of_algorithm<-
+  c("alfastronk_medium",
+    "alfastronk_small",
+    "anasazi_small", "anasazi", ### ADDED
+    "bam_small", "bam", ### ADDED https://www.comses.net/codebases/9dacc220-8d7f-4038-b618-92bb9b1333f0/releases/1.1.0/
+    "bandwagon_small", "bandwagon", ### ADDED  https://www.comses.net/codebases/4716/releases/1.0.0/
+    "birds_simple",
+    "birds",
+    "brokenliner_medium",
+    "brokenliner_small",
+    "coal_quick",
+    "commons_small", "commons", ### ADDED  https://www.comses.net/codebases/0f95455b-744d-4eb2-be9a-0074662799a3/releases/1.0.0/
+    "covidmask_small", "covidmask", ### ADDED  https://www.comses.net/codebases/ef690263-d2fb-4ac0-8f0b-71d8ee86186f/releases/1.0.0/
+    "earthwormjim",
+    "ebola_small", "ebola", ### ADDED https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7121695/
+    "fishmob_small", "fishmob", ### ADDDED https://www.comses.net/codebases/8f3d00ad-ca0b-44b2-a591-5ef4d24d8296/releases/1.0.0/
+    "ger_small", "ger", ### ADDDED http://www.mdpi.com/2073-445X/4/1/157
+    "gk_medium",
+    "gk_small",
+    "hierarchy_medium",
+    "hierarchy_small",
+    "hr_small", "hr", #### ADDED https://www.comses.net/codebase-release/7029c19d-669f-4f5d-ad68-f06d65c76759/
+    "insulation_small","insulation", ### ADDED https://www.comses.net/codebases/4419/releases/1.4.0/
+    "lk_noisy",
+    "lk_nonoise_quick",
+    "local_medium",
+    "local_small",
+    "ma_medium",
+    "ma_small",
+    "medmad_medium",
+    "medmad_small",
+    "medmadgarbage_medium",
+    "medmadgarbage_small",
+    "mlevel_small","mlevel" ,  ### https://www.comses.net/codebases/d2011a12-f791-45aa-9f22-6a535dac3310/releases/1.6.1/
+    "musigma2",
+    "neighbor_small","neighbor", ### ADDED https://www.comses.net/codebases/e0f12da8-a9d0-48a1-9446-30275482a8b4/releases/1.0.0/
+    "normal25_medium",
+    "normal25_small",
+    "overfat_medium",
+    "overfat_small",
+    "overfit_medium",
+    "overfit_small",
+    "partial_medium",
+    "partial_small",
+    "peerreview_small","peerreview", ### ADDED https://www.comses.net/codebases/6b77a08b-7e60-4f47-9ebb-6a8a2e87f486/releases/1.0.0/
+    "personalities_small","personalities", ### ADDED https://www.comses.net/codebases/df924b19-586d-4256-ba89-7fa59034720f/releases/1.0.0/
+    "rbc_full",
+    "rbc",
+    "risknet_small","risknet", ### ADDED https://www.comses.net/codebases/0f779ef3-5c89-4fe0-be7f-2757f9789028/releases/1.0.0/
+    "standingovation_small","standingovation", ### ADDED https://luis-r-izquierdo.github.io/standingovation/
+    "shelling_small","shelling", ### ADDED https://www.comses.net/codebases/7c562b23-4964-4d28-862c-1c8b254fd6ad/releases/1.0.0/
+    "sugarscape_small","sugarscape", ### ADDED https://www.comses.net/codebases/6f72dfc9-e8c5-4d9c-b925-7338059573c3/releases/1.1.0/
+    "supplychain_small","supplychain", ### ADDED https://www.comses.net/codebases/05f6bc80-f79e-4850-9066-ffd914395aa4/releases/1.0.0/
+    "steel_quick",
+    "toymodel_medium",
+    "toymodel_small",
+    "traits_medium",
+    "traits_small",
+    "wilkinson_medium",
+    "wilkinson_small",
+    "wolfsheep_small","wolfsheep" ### ADDED https://ccl.northwestern.edu/netlogo/models/WolfSheepPredation
+  )
+
+```
+
+
+
+## Full predictivity table
+(separate file)
+
+## Introduction to `freelunch` package
+(separate file)
+
+# Acknowledgments {-}
+
+This research is funded in part by the Oxford Martin School, the David and Lucile Packard Foundation, the Gordon and Betty Moore Foundation, the Walton Family Foundation, and Ocean Conservancy.  
+
+## Bibliography {-}

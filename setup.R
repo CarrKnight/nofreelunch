@@ -800,8 +800,9 @@ loess_fit<-function(
     
     #we need to avoid putting too high k on variables whose unique values are only a few
     unique_values<-
-      training_set %>% gather(variable,value) %>% group_by(variable) %>% 
-      summarise(uniques=length(unique(value)))  %>% filter(uniques<10)
+      training_set %>% select(-(parameter_colnames)) %>% gather(variable,value) %>% group_by(variable) %>%
+      summarise(uniques=length(unique(value)),.groups="keep")  %>% filter(uniques<10)
+    
     
     #with more than 10 unique observations, they go in the formula directly
     valids<-setdiff(x_names,unique_values$variable)

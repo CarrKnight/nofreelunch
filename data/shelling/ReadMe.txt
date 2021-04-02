@@ -1,0 +1,9 @@
+The 'code' folder contains two NetLogo model: 1) SegregationExtended and 2) SegregationDiscreteChoice. 
+
+In the first model (SegregationExtended), we build on Wilensky’s implementation of Schelling’s model which is available in NetLogo library (Wilensky, 1997). We considerably extend this model, allowing in particular to include larger neighborhoods and a population with four groups roughly resembling the ethnic composition of a contemporary large U.S. city. Further features added concern the possibility to include random noise, and the addition of a number of new outcome measures tuned to highlight macro-level implications of the segregation dynamics for different groups in the agent society.
+
+In SegregationDiscreteChoice, we further modify the model incorporating in particular three new features: 1) heterogeneous preferences roughly based on empirical research categorizing agents into low, medium, and highly tolerant within each of the ethnic subgroups of the population, 2) we drop global thresholds (%-similar-wanted) and introduce instead a continuous individual-level single-peaked preference function for agents’ ideal neighborhood composition, and 3) we use a discrete choice model according to which agents probabilistically decide whether to move to a vacant spot or stay in the current spot by comparing the attractiveness of both locations based on the individual preference functions.
+
+Notably, both models are not optimized for efficiency but instead for transparency for users relatively new to NetLogo as well as agent-based modeling in general.
+
+Data were produced via BehaviorSpace and analyzed in R. The BehaviorSpace experiments are set in place in both NetLogo models.
